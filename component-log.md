@@ -2,8 +2,8 @@
 
 | Screen/Component | Business Process It Implements | Status |
 | --- | --- | --- |
-| Login Screen | Process 1 – Registration (authentication) | To build |
-| Signup Screen | Process 1 – Registration | To build |
+| Login Screen | Process 1 – Registration (authentication) | UI done|
+| Signup Screen | Process 1 – Registration | UI done |
 | Preference Onboarding | Process 2 – User Preference Selection | To build |
 | Home / Recommendation Feed | Process 6 – Recommendation | To build |
 | Search & Results | Process 3 – Search & Discovery | To build |
