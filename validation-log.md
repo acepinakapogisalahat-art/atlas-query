@@ -6,3 +6,5 @@
 | App works in any browser | Identical behavior everywhere | Brave Shields blocked Supabase ("Failed to fetch"); Chrome works | Discuss – demo + docs will specify Chrome |
 | 5-day weather outlook | Live telemetry per Mission 1 Challenge #3 | Static demo feed (no weather table exists) | Discuss – placeholder until external feed integrated |
 | Activity/Budget chips | Filter results by activity/budget | Visual selection only – listings has no activity/budget column (budget lives in user_preferences, activity in attractions.activity_name) | Discuss – wire chips via attractions join next sprint |
+| Who uploads listing photos | Owners/admins upload their own assets (Process 5) | Seeded rows repointed to stock CC photos; owner-upload pipeline = Supabase Storage bucket listing-photos, wired in admin manager | Discuss – stock URLs are demo stand-ins until real uploads |
+| Business-owner self-service | Owners post their own listings | Schema models only Administrator role; owner submissions flow through admin curation | Discuss – add owner role post-Go-Live |
