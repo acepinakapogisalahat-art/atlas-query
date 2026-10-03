@@ -28,6 +28,7 @@ export default function ListingDetailPage() {
   const [photos, setPhotos] = useState<any[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -73,7 +74,7 @@ export default function ListingDetailPage() {
       setLoading(false);
     }
     load();
-  }, [listingId]);
+  }, [listingId, refreshKey]);
 
   if (loading) return <div className="p-8 text-center">Loading listing...</div>;
   if (!listing) {
@@ -122,7 +123,7 @@ export default function ListingDetailPage() {
           </div>
         </div>
 
-                <div className="mb-10">
+        <div className="mb-10">
           {displayPhotos.slice(0, 1).map((photo) => (
             <div
               key={photo.photo_id ?? 'main'}
@@ -177,6 +178,8 @@ export default function ListingDetailPage() {
                 />
               </div>
             </section>
+
+            <ReviewForm listingId={listingId} onSubmitted={() => setRefreshKey((k) => k + 1)} />
           </div>
 
           <div>
@@ -233,12 +236,126 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function SafeImg({ src, alt, emoji }: { src: string; alt: string; emoji: string }) {
   const [failed, setFailed] = useState(false);
-    const usable = !!src && !failed;
+  const usable = !!src && !failed;
   return usable ? (
     <img src={src} alt={alt} onError={() => setFailed(true)} className="w-full h-full object-cover" />
   ) : (
     <div className="w-full h-full flex items-center justify-center text-gray-400 text-5xl bg-gradient-to-br from-blue-100 via-indigo-100 to-purple-100">
       {emoji}
     </div>
+  );
+}
+
+function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted: () => void }) {
+  const supabase = createClient();
+  const [rating, setRating] = useState(0);
+  const [title, setTitle] = useState('');
+  const [text, setText] = useState('');
+  const [visitDate, setVisitDate] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    async function who() {
+      const { data } = await supabase.auth.getSession();
+      const uid = data.session?.user?.id ?? null;
+      if (uid) {
+        const { data: profile } = await supabase
+          .from('app_users').select('user_id').eq('auth_user_id', uid).maybeSingle();
+        setUserId(profile?.user_id ?? null);
+      }
+      setChecked(true);
+    }
+    who();
+  }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setMsg(null);
+    if (!userId) { setErr('Please sign in to submit a review.'); return; }
+    if (rating < 1) { setErr('Pick a star rating from 1 to 5.'); return; }
+    setBusy(true);
+    try {
+      // BR-011: one review per user per listing
+      const { data: dup } = await supabase
+        .from('reviews').select('review_id')
+        .eq('listing_id', listingId).eq('user_id', userId).maybeSingle();
+      if (dup) throw new Error('BR-011: You already reviewed this listing.');
+
+      const { error } = await supabase.from('reviews').insert({
+        review_id: `REV-${Date.now().toString().slice(-8)}`,
+        listing_id: listingId,
+        user_id: userId,
+        rating,
+        title: title || null,
+        review_text: text,
+        visit_date: visitDate || null,
+        submission_date: new Date().toISOString().slice(0, 10),
+        helpful_votes_count: 0,
+      });
+      if (error) throw error;
+
+      // Process 4: recalculate the public average score
+      await supabase.rpc('recalc_listing_rating', { p_listing_id: listingId });
+
+      setMsg('Review published — average rating recalculated.');
+      setRating(0); setTitle(''); setText(''); setVisitDate('');
+      onSubmitted();
+    } catch (e2: any) {
+      setErr(e2?.message ?? 'Could not submit review.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!checked) return null;
+  if (!userId) {
+    return (
+      <section className="bg-white border border-gray-200 rounded-xl p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Write a review</h2>
+        <p className="text-sm text-gray-500">
+          <a href="/login" className="text-blue-600 underline">Sign in</a> to share your experience at this place.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="bg-white border border-gray-200 rounded-xl p-6">
+      <h2 className="text-xl font-bold text-gray-900 mb-4">Write a review</h2>
+      {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-lg px-4 py-3 text-sm mb-4">{err}</p>}
+      {msg && <p className="bg-green-50 text-green-700 border border-green-200 rounded-lg px-4 py-3 text-sm mb-4">{msg}</p>}
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Your rating</label>
+          <div className="flex gap-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} type="button" onClick={() => setRating(n)}
+                className={`text-2xl ${n <= rating ? 'text-yellow-500' : 'text-gray-300'} hover:scale-110 transition`}>
+                ★
+              </button>
+            ))}
+          </div>
+        </div>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)"
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+        <textarea required value={text} onChange={(e) => setText(e.target.value)} rows={4}
+          placeholder="What was your experience like?"
+          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Visit date (optional)</label>
+          <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg" />
+        </div>
+        <button type="submit" disabled={busy}
+          className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-60">
+          {busy ? 'Publishing…' : 'Publish review'}
+        </button>
+      </form>
+    </section>
   );
 }
