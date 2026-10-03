@@ -8,3 +8,5 @@
 | Activity/Budget chips | Filter results by activity/budget | Visual selection only – listings has no activity/budget column (budget lives in user_preferences, activity in attractions.activity_name) | Discuss – wire chips via attractions join next sprint |
 | Who uploads listing photos | Owners/admins upload their own assets (Process 5) | Seeded rows repointed to stock CC photos; owner-upload pipeline = Supabase Storage bucket listing-photos, wired in admin manager | Discuss – stock URLs are demo stand-ins until real uploads |
 | Business-owner self-service | Owners post their own listings | Schema models only Administrator role; owner submissions flow through admin curation | Discuss – add owner role post-Go-Live |
+| Listing photos source | Real photos render reliably | Third-party placeholder service unreachable from campus network; switched to local assets in /public/img/listings (original Mission 3 seed paths now resolve) | Pass – works offline |
+| 4-tile photo gallery | Design shows 4 tiles | DB seeds 1 photo per listing (BR-019 permits many) | Discuss – hero cover until admin upload flow adds more |
