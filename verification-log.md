@@ -10,3 +10,5 @@
 | Home search handoff | Routes to /search?q=... and filters listings | "Kyoto" returns Kyoto listings | Pass |
 | Listing detail view | Shows subtype details + reviews per listing type | Attraction shows activity/coords + review; hotel shows stars; restaurant shows cuisine | Pass |
 | Seeded listing photos | Search cards + detail gallery render real images | loremflickr topical URLs render; SafeImg fallback covers offline | Pass |
+| Review submission (Process 4) | Review inserted + listings.average_rating recalculated | New review published, average updated live | Pass |
+| BR-011 duplicate review block | Second review by same user rejected | Red BR-011 error shown; DB unique constraint as backstop | Pass |
