@@ -8,3 +8,4 @@
 | Signup, duplicate email | Clear rejection, no duplicate row | "User already registered" shown | Pass |
 | Home "Now Boarding" table | Top recommendations with match % from live recommendations table | 4 rows rendered with scores 99%→90% | Pass |
 | Home search handoff | Routes to /search?q=... and filters listings | "Kyoto" returns Kyoto listings | Pass |
+| Listing detail view | Shows subtype details + reviews per listing type | Attraction shows activity/coords + review; hotel shows stars; restaurant shows cuisine | Pass |
