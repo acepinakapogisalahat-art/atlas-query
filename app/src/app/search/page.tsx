@@ -26,7 +26,7 @@ const TABS = ['All', 'Attractions', 'Hotels', 'Restaurants'];
 
 function CardImage({ listing }: { listing: ListingRow }) {
   const [failed, setFailed] = useState(false);
-  const usable = listing.image_url && !listing.image_url.startsWith('/img/') && !failed;
+    const usable = !!listing.image_url && !failed;
   return usable ? (
     <img
       src={listing.image_url!}

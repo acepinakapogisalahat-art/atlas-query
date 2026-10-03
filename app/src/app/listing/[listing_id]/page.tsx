@@ -122,11 +122,11 @@ export default function ListingDetailPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10 md:h-80">
-          {displayPhotos.slice(0, 4).map((photo, i) => (
+                <div className="mb-10">
+          {displayPhotos.slice(0, 1).map((photo) => (
             <div
-              key={photo.photo_id ?? i}
-              className={`${i === 0 ? 'md:col-span-2 md:row-span-2' : ''} h-48 md:h-auto bg-gray-200 rounded-xl overflow-hidden relative`}
+              key={photo.photo_id ?? 'main'}
+              className="h-72 md:h-96 rounded-xl overflow-hidden relative bg-gray-200"
             >
               <SafeImg src={photo.photo_url} alt={photo.caption ?? listing.name} emoji={emoji} />
               {photo.caption && (
@@ -233,7 +233,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function SafeImg({ src, alt, emoji }: { src: string; alt: string; emoji: string }) {
   const [failed, setFailed] = useState(false);
-  const usable = src && !src.startsWith('/img/') && !failed;
+    const usable = !!src && !failed;
   return usable ? (
     <img src={src} alt={alt} onError={() => setFailed(true)} className="w-full h-full object-cover" />
   ) : (
