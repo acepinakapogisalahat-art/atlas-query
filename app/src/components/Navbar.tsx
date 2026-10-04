@@ -5,36 +5,30 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
+import { useRole } from '@/utils/supabase/role';
 
 export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function load() {
-      const { data } = await supabase.auth.getSession();
-      const authId = data.session?.user?.id ?? null;
-      if (authId) {
-        const { data: profile } = await supabase
-          .from('app_users').select('name').eq('auth_user_id', authId).maybeSingle();
-        setDisplayName(profile?.name ?? data.session?.user?.email ?? null);
-        const { data: adminRow } = await supabase
-          .from('administrators').select('admin_id').eq('auth_user_id', authId).maybeSingle();
-        setIsAdmin(!!adminRow);
+    async function loadName() {
+      if (!role.authId) { setDisplayName(null); return; }
+            const { data: profile } = await supabase
+        .from('app_users').select('name').eq('auth_user_id', role.authId).maybeSingle();
+      if (profile?.name) {
+        setDisplayName(profile.name);
       } else {
-        setDisplayName(null);
-        setIsAdmin(false);
+        const { data: sess } = await supabase.auth.getSession();
+        setDisplayName(sess.session?.user?.email ?? null);
       }
-      setLoading(false);
     }
-    load();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => load());
-    return () => sub.subscription.unsubscribe();
-  }, []);
+    loadName();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role.authId]);
 
   if (pathname === '/login' || pathname === '/signup') return null;
 
@@ -60,16 +54,23 @@ export default function Navbar() {
         <div className="flex items-center gap-5">
           <Link href="/" className="text-sm font-medium text-gray-700 hover:text-blue-600">Discover</Link>
           <Link href="/search" className="text-sm font-medium text-gray-700 hover:text-blue-600">Search</Link>
-          {isAdmin && (
-            <Link href="/admin" className="text-sm font-medium text-purple-700 hover:text-purple-900">Admin</Link>
+          {role.isOwner && (
+            <Link href="/owner" className="text-sm font-medium text-purple-700 hover:text-purple-900">My Listings</Link>
           )}
-          {loading ? null : displayName ? (
+          {role.isAdmin && (
+            <>
+              <Link href="/admin" className="text-sm font-medium text-purple-700 hover:text-purple-900">Admin</Link>
+              <Link href="/admin/applications" className="text-sm font-medium text-purple-700 hover:text-purple-900">Applications</Link>
+            </>
+          )}
+          {role.authId && !role.isAdmin && !role.isOwner && (
+            <Link href="/apply" className="text-sm font-medium text-gray-500 hover:text-purple-700">Become a publisher</Link>
+          )}
+            {role.loading ? null : role.authId ? (
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center">
-                  {initial}
-                </span>
-                <span className="text-sm text-gray-600 hidden sm:inline">{displayName.split(' ')[0]}</span>
+                <span className="w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center">{initial}</span>
+                <span className="text-sm text-gray-600 hidden sm:inline">{(displayName ?? '').split(' ')[0]}</span>
               </div>
               <button onClick={handleLogout}
                 className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition">
