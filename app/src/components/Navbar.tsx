@@ -11,6 +11,7 @@ export default function Navbar() {
   const router = useRouter();
   const supabase = createClient();
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -19,22 +20,22 @@ export default function Navbar() {
       const authId = data.session?.user?.id ?? null;
       if (authId) {
         const { data: profile } = await supabase
-          .from('app_users')
-          .select('name')
-          .eq('auth_user_id', authId)
-          .maybeSingle();
+          .from('app_users').select('name').eq('auth_user_id', authId).maybeSingle();
         setDisplayName(profile?.name ?? data.session?.user?.email ?? null);
+        const { data: adminRow } = await supabase
+          .from('administrators').select('admin_id').eq('auth_user_id', authId).maybeSingle();
+        setIsAdmin(!!adminRow);
+      } else {
+        setDisplayName(null);
+        setIsAdmin(false);
       }
       setLoading(false);
     }
     load();
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (!session) setDisplayName(null);
-    });
+    const { data: sub } = supabase.auth.onAuthStateChange(() => load());
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Auth pages keep the clean split-screen shell
   if (pathname === '/login' || pathname === '/signup') return null;
 
   async function handleLogout() {
@@ -59,6 +60,9 @@ export default function Navbar() {
         <div className="flex items-center gap-5">
           <Link href="/" className="text-sm font-medium text-gray-700 hover:text-blue-600">Discover</Link>
           <Link href="/search" className="text-sm font-medium text-gray-700 hover:text-blue-600">Search</Link>
+          {isAdmin && (
+            <Link href="/admin" className="text-sm font-medium text-purple-700 hover:text-purple-900">Admin</Link>
+          )}
           {loading ? null : displayName ? (
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
@@ -67,22 +71,16 @@ export default function Navbar() {
                 </span>
                 <span className="text-sm text-gray-600 hidden sm:inline">{displayName.split(' ')[0]}</span>
               </div>
-              <button
-                onClick={handleLogout}
-                className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition"
-              >
+              <button onClick={handleLogout}
+                className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition">
                 Log out
               </button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Link href="/login" className="text-sm font-medium text-gray-700 hover:text-blue-600 px-3 py-2">
-                Sign in
-              </Link>
-              <Link
-                href="/signup"
-                className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition"
-              >
+              <Link href="/login" className="text-sm font-medium text-gray-700 hover:text-blue-600 px-3 py-2">Sign in</Link>
+              <Link href="/signup"
+                className="text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition">
                 Create Account
               </Link>
             </div>

@@ -12,6 +12,7 @@ type Review = {
   review_text: string | null;
   visit_date: string | null;
   helpful_votes_count: number | null;
+  photo_url: string | null;
   user_id: string;
   user_name?: string;
 };
@@ -211,6 +212,10 @@ export default function ListingDetailPage() {
                     </div>
                     {review.title && <p className="font-medium text-gray-800 text-sm mb-1">{review.title}</p>}
                     <p className="text-sm text-gray-600">{review.review_text}</p>
+                    {review.photo_url && (
+                      <img src={review.photo_url} alt="Photo from this review"
+                        className="mt-2 rounded-lg max-h-44 object-cover border border-gray-100" />
+                    )}
                     {review.helpful_votes_count != null && review.helpful_votes_count > 0 && (
                       <p className="text-xs text-gray-400 mt-2">👍 {review.helpful_votes_count} found this helpful</p>
                     )}
@@ -246,12 +251,13 @@ function SafeImg({ src, alt, emoji }: { src: string; alt: string; emoji: string 
   );
 }
 
-function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted: () => void }) {
+  function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted: () => void }) {
   const supabase = createClient();
   const [rating, setRating] = useState(0);
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [visitDate, setVisitDate] = useState('');
+  const [photo, setPhoto] = useState<File | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -286,8 +292,20 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
         .eq('listing_id', listingId).eq('user_id', userId).maybeSingle();
       if (dup) throw new Error('BR-011: You already reviewed this listing.');
 
+      const reviewId = `REV-${Date.now().toString().slice(-8)}`;
+
+      // Optional review photo → Media/reviews/<review_id>/
+      let photoUrl: string | null = null;
+      if (photo) {
+        const path = `reviews/${reviewId}/${Date.now()}-${photo.name}`;
+        const { error: upErr } = await supabase.storage.from('Media').upload(path, photo);
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from('Media').getPublicUrl(path);
+        photoUrl = pub.publicUrl;
+      }
+
       const { error } = await supabase.from('reviews').insert({
-        review_id: `REV-${Date.now().toString().slice(-8)}`,
+        review_id: reviewId,
         listing_id: listingId,
         user_id: userId,
         rating,
@@ -296,6 +314,7 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
         visit_date: visitDate || null,
         submission_date: new Date().toISOString().slice(0, 10),
         helpful_votes_count: 0,
+        photo_url: photoUrl,
       });
       if (error) throw error;
 
@@ -303,7 +322,7 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
       await supabase.rpc('recalc_listing_rating', { p_listing_id: listingId });
 
       setMsg('Review published — average rating recalculated.');
-      setRating(0); setTitle(''); setText(''); setVisitDate('');
+      setRating(0); setTitle(''); setText(''); setVisitDate(''); setPhoto(null);
       onSubmitted();
     } catch (e2: any) {
       setErr(e2?.message ?? 'Could not submit review.');
@@ -346,6 +365,11 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
         <textarea required value={text} onChange={(e) => setText(e.target.value)} rows={4}
           placeholder="What was your experience like?"
           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Add a photo (optional)</label>
+          <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-gray-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer" />
+        </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Visit date (optional)</label>
           <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)}
