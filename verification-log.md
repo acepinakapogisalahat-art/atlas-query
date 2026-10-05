@@ -11,16 +11,17 @@
 | Login, forgot password | Reset email triggered with feedback | Green notice after submitting email | Pass |
 | Auth fields empty on load | No pre-filled text after refresh/logout | Mount cleanup wipes injected values on /login and /signup | Pass |
 | Auth autocomplete suppression | No dropdowns or suggestions on any auth field | Decoy inputs + removed stored credentials + autoComplete=off | Pass |
-| Home "Top picks for you" | Top recommendations with match % from live recommendations table | 4 rows with progress bars and Excellent/Good match chips | Pass |
+| Home "Top picks for you" | Top recommendations with match % from live recommendations table | 2x2 card grid with progress bars, Excellent/Good match chips, and reason text | Pass |
 | Top picks clickable | Row click opens the Listing Detail | Navigates to /listing/<id> | Pass |
-| Trending destinations | Highest average listing rating per destination, top 4 | Cards render rated destinations; click searches that destination | Pass |
+| Dashboard explore rail (Process 3) | Live listings browse with type pills for every user | Rail renders all listings; pills filter; cards open detail; new accounts see it first | Pass |
+| Trending destinations | Highest average listing rating per destination, top 4 | Full-width cards render rated destinations; click searches that destination | Pass |
 | 5-day forecast | Clearly labeled sample, no dev notes | "Sample data" tag + post-launch footnote | Pass |
 | Home search handoff | Routes to /search?q=... and filters listings | "Kyoto" returns Kyoto listings | Pass |
 | Fuzzy search (Process 3) | Typo-tolerant keyword matching incl. country names | "jaan" returns Japan listings via pg_trgm similarity | Pass |
 | Search cards clickable | Card click opens Listing Detail | Navigates to /listing/<id> | Pass |
 | Search type tabs | All/Attractions/Hotels/Restaurants filter results | Tabs filter the live listings correctly | Pass |
 | Navbar auth state | Login/Signup when logged out; identity + Log out when logged in | Correct on / and /search; hidden on /login and /signup | Pass |
-| Navbar signed-in identity | Signed-in accounts always show identity | Session-based branch with email fallback for profile-less accounts | Pass |
+| Navbar signed-in identity | Signed-in accounts always show identity | Session-based branch with email fallback for profile-less accounts; refined icon logout | Pass |
 | Navbar role links | Role-appropriate links only | Admin/Applications for admins; My Listings for owners; Become a publisher for travelers | Pass |
 | Listing detail view | Shows subtype details + reviews per listing type | Attraction shows activity/coords; hotel shows stars; restaurant shows cuisine | Pass |
 | Seeded listing photos | Search cards + detail gallery render real images | Local assets in /public/img/listings render; works offline | Pass |
@@ -38,3 +39,6 @@
 | Owner scoped publish (BR-026) | Owner listing stamped uploaded_by = own user_id; appears in /search | Owner-published listing searchable; ownership stamped | Pass |
 | Owner scoping (Secure It) | Owner sees/manages only own listings | /owner shows only own rows; RLS rejects cross-access | Pass |
 | Owner creates destination (BR-012/027 revised) | New DEST row + listing stamped uploaded_by | Owner-typed place appears in search under the new destination | Pass |
+| Profile update (Process 1) | Name/sex/location edits persist to app_users | Saved values re-render after reload | Pass |
+| Preference save (Process 2) | user_preferences row created/updated per user | Pills saved; recommendations input complete | Pass |
+| Trips view (ERD) | Upcoming vs completed split by end_date | Trip cards grouped correctly; empty state for new users | Pass |
