@@ -18,12 +18,25 @@ type Rec = {
   } | null;
 };
 
+type ExploreCard = {
+  listing_id: string;
+  name: string;
+  listing_type: string;
+  image_url: string | null;
+  average_rating: number | null;
+  destination: { destination_name: string; region_country: string } | null;
+};
+
+type ForecastDay = { day: string; temp: number };
+
 const REC_SELECT =
   'recommendation_score, recommendation_reason, listing:listing_id(listing_id, name, listing_type, destination:destination_id(destination_name, region_country))';
 
 const ACTIVITIES = ['Culture & Food', 'Adventure', 'Relaxation', 'Nightlife'];
 const BUDGETS = ['Budget', 'Mid-range', 'Luxury'];
-const OUTLOOK = [
+const EXPLORE_TABS = ['All', 'Attraction', 'Hotel', 'Restaurant'] as const;
+
+const FALLBACK_OUTLOOK: ForecastDay[] = [
   { day: 'Mon', temp: 24 },
   { day: 'Tue', temp: 24 },
   { day: 'Wed', temp: 25 },
@@ -74,10 +87,57 @@ export default function HomePage() {
   const supabase = createClient();
   const [firstName, setFirstName] = useState<string | null>(null);
   const [recs, setRecs] = useState<Rec[]>([]);
+  const [hasPersonal, setHasPersonal] = useState(false);
+  const [explore, setExplore] = useState<ExploreCard[]>([]);
+  const [exploreType, setExploreType] = useState<(typeof EXPLORE_TABS)[number]>('All');
   const [trending, setTrending] = useState<{ name: string; country: string; rating: number }[]>([]);
+  const [recent, setRecent] = useState<string[]>([]);
+  const [forecast, setForecast] = useState<ForecastDay[]>(FALLBACK_OUTLOOK);
+  const [forecastLocation, setForecastLocation] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [activity, setActivity] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
+
+  // Live 5-day forecast via Open-Meteo (no API key, CORS-friendly)
+  async function loadForecast(loc: string | null) {
+    if (!loc) {
+      setForecast(FALLBACK_OUTLOOK);
+      setForecastLocation(null);
+      return;
+    }
+    try {
+      const geoRes = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(loc)}&count=1&language=en&format=json`
+      );
+      const geoData = await geoRes.json();
+      if (!geoData.results || geoData.results.length === 0) {
+        setForecast(FALLBACK_OUTLOOK);
+        setForecastLocation(null);
+        return;
+      }
+      const { latitude, longitude } = geoData.results[0];
+      const weatherRes = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max&timezone=auto`
+      );
+      const weatherData = await weatherRes.json();
+      if (!weatherData.daily || !weatherData.daily.time || !weatherData.daily.temperature_2m_max) {
+        setForecast(FALLBACK_OUTLOOK);
+        setForecastLocation(null);
+        return;
+      }
+      const days: ForecastDay[] = weatherData.daily.time.slice(0, 5).map((dateStr: string, i: number) => {
+        const date = new Date(dateStr);
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        const temp = Math.round(weatherData.daily.temperature_2m_max[i]);
+        return { day: dayName, temp };
+      });
+      setForecast(days);
+      setForecastLocation(geoData.results[0].name);
+    } catch {
+      setForecast(FALLBACK_OUTLOOK);
+      setForecastLocation(null);
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -87,33 +147,55 @@ export default function HomePage() {
       if (authId) {
         const { data: profile } = await supabase
           .from('app_users')
-          .select('user_id, name')
+          .select('user_id, name, current_location')
           .eq('auth_user_id', authId)
           .maybeSingle();
         if (profile) {
           uid = profile.user_id;
           setFirstName(String(profile.name ?? '').split(' ')[0] || null);
+          loadForecast(profile.current_location ?? null);
         }
       }
 
       let rq = supabase.from('recommendations').select(REC_SELECT);
       if (uid) rq = rq.eq('user_id', uid);
       const { data: recData } = await rq.order('recommendation_score', { ascending: false }).limit(4);
-            let rows = (recData as unknown as Rec[]) ?? [];
+      let rows = (recData as unknown as Rec[]) ?? [];
+      if (uid) setHasPersonal(rows.length > 0);
       if (rows.length === 0) {
         const { data: globalRecs } = await supabase
           .from('recommendations')
           .select(REC_SELECT)
           .order('recommendation_score', { ascending: false })
           .limit(4);
-          rows = (globalRecs as unknown as Rec[]) ?? [];
+        rows = (globalRecs as unknown as Rec[]) ?? [];
       }
       setRecs(rows);
 
-      const [{ data: dests }, { data: listings }] = await Promise.all([
+      if (uid) {
+        const { data: logs } = await supabase
+          .from('search_logs')
+          .select('keywords')
+          .eq('user_id', uid)
+          .order('log_id', { ascending: false })
+          .limit(10);
+        const seen: string[] = [];
+        (logs ?? []).forEach((l: any) => {
+          const q = String(l.keywords ?? '').trim();
+          if (q && !seen.includes(q)) seen.push(q);
+        });
+        setRecent(seen.slice(0, 5));
+      }
+
+      const [{ data: dests }, { data: listings }, { data: exploreRows }] = await Promise.all([
         supabase.from('destinations').select('destination_id, destination_name, region_country'),
         supabase.from('listings').select('destination_id, average_rating'),
+        supabase
+          .from('listings')
+          .select('listing_id, name, listing_type, image_url, average_rating, destination:destination_id(destination_name, region_country)'),
       ]);
+      setExplore((exploreRows as unknown as ExploreCard[]) ?? []);
+
       const dMap = new Map<string, { destination_name: string; region_country: string }>();
       (dests ?? []).forEach((d: any) => dMap.set(d.destination_id, d));
       const agg = new Map<string, { sum: number; count: number }>();
@@ -141,15 +223,17 @@ export default function HomePage() {
       setTrending(trend);
     }
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
-  function goSearch(e?: React.FormEvent) {
+  function goSearch(e?: React.FormEvent, q?: string) {
     if (e) e.preventDefault();
     const params = new URLSearchParams();
-    if (query.trim()) params.set('q', query.trim());
+    const finalQuery = (q ?? query).trim();
+    if (finalQuery) params.set('q', finalQuery);
     if (activity) params.set('activity', activity);
     if (budget) params.set('budget', budget);
     router.push(`/search?${params.toString()}`);
@@ -161,6 +245,10 @@ export default function HomePage() {
         ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
         : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400 hover:text-slate-800'
     }`;
+
+  const exploreList = explore
+    .filter((l) => exploreType === 'All' || l.listing_type === exploreType)
+    .sort((a, b) => (b.average_rating ?? -1) - (a.average_rating ?? -1));
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col">
@@ -213,129 +301,214 @@ export default function HomePage() {
               ))}
             </div>
           </div>
+
+          {recent.length > 0 && (
+            <div className="mt-5 flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Recent</span>
+              {recent.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => goSearch(undefined, q)}
+                  className="px-3 py-1 rounded-full text-xs border border-slate-200 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-800 transition"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-10 flex-1 w-full">
-        {/* Main column */}
-        <section className="lg:col-span-2 space-y-12">
-          {/* Top picks */}
-          <div>
-            <SectionHeader title="Top picks for you" helper="From your recommendation profile" />
-            <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100 shadow-sm overflow-hidden">
-              {recs.map((r, i) => {
-                const dest = r.listing?.destination;
-                const pct = Math.round(Number(r.recommendation_score) * 100);
-                return (
-                  <Link
-                    key={r.listing?.listing_id ?? i}
-                    href={`/listing/${r.listing?.listing_id}`}
-                    className="grid grid-cols-[2rem_minmax(0,1fr)_3rem_7rem] md:grid-cols-[2rem_minmax(0,1fr)_7rem_3rem_7rem_1.25rem] items-center gap-x-4 px-5 py-4 hover:bg-slate-50 transition group"
-                  >
-                    <span className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center">
-                      {i + 1}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block font-medium text-slate-900 truncate group-hover:text-blue-700 transition">
-                        {r.listing?.name ?? '—'}
-                      </span>
-                      <span className="block text-sm text-slate-500 truncate">{dest?.region_country ?? '—'}</span>
-                    </span>
-                    <span className="hidden md:block h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <span className="block h-full bg-blue-600 rounded-full" style={{ width: `${pct}%` }} />
-                    </span>
-                    <span className="text-sm font-semibold text-blue-700 text-right">{pct}%</span>
-                    <span
-                      className={`justify-self-start px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
-                        pct >= 90 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                      }`}
-                    >
-                      {pct >= 90 ? 'Excellent match' : 'Good match'}
-                    </span>
-                    <Chevron className="hidden md:block w-4 h-4 text-slate-300 group-hover:text-blue-600 group-hover:translate-x-0.5 transition" />
-                  </Link>
-                );
-              })}
-              {recs.length === 0 && (
-                <p className="px-5 py-10 text-center text-sm text-slate-500">
-                  No recommendations yet — run a search to build your profile.
-                </p>
-              )}
-            </div>
+      {/* Explore rail — full width */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-base font-semibold text-slate-900">Explore places</h2>
+            <span className="text-xs text-slate-400">{exploreList.length} live listings · scroll sideways</span>
           </div>
-
-          {/* Trending */}
-          <div>
-            <SectionHeader title="Trending destinations" helper="Highest-rated across our listings" />
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {trending.map((t, i) => (
-                <Link
-                  key={t.name}
-                  href={`/search?q=${encodeURIComponent(t.name)}`}
-                  className="group bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200 transition flex flex-col"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-400">#{i + 1}</span>
-                    <span className="flex items-center gap-1 text-sm font-semibold text-amber-600">
-                      <Star className="w-4 h-4" />
-                      {t.rating.toFixed(1)}
-                    </span>
+          <div className="flex flex-wrap gap-2">
+            {EXPLORE_TABS.map((t) => (
+              <button key={t} type="button" onClick={() => setExploreType(t)} className={chip(exploreType === t)}>
+                {t === 'All' ? 'All places' : `${t}s`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="relative">
+          <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory">
+            {exploreList.map((l) => (
+              <Link
+                key={l.listing_id}
+                href={`/listing/${l.listing_id}`}
+                className="w-64 shrink-0 snap-start bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition group"
+              >
+                <div className="relative h-40">
+                  {l.image_url ? (
+                    <img src={l.image_url} alt="" className="w-full h-40 object-cover" />
+                  ) : (
+                    <div className="w-full h-40 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{l.listing_type}</span>
+                    </div>
+                  )}
+                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/90 text-slate-700">
+                    {l.listing_type}
+                  </span>
+                </div>
+                <div className="p-4">
+                  <p className="font-semibold text-slate-900 truncate group-hover:text-blue-700 transition">{l.name}</p>
+                  <p className="text-xs text-slate-400 truncate mt-0.5">{l.destination?.region_country ?? '—'}</p>
+                  <div className="mt-2">
+                    {l.average_rating != null ? (
+                      <span className="flex items-center gap-1 text-sm font-semibold text-amber-600">
+                        <Star className="w-4 h-4" />
+                        {Number(l.average_rating).toFixed(1)}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-400">New · not rated yet</span>
+                    )}
                   </div>
-                  <p className="mt-3 font-semibold text-slate-900 leading-snug group-hover:text-blue-700 transition">{t.name}</p>
-                  <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{t.country}</p>
-                  <span className="mt-4 flex items-center gap-1 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition">
-                    View listings
+                </div>
+              </Link>
+            ))}
+            {exploreList.length === 0 && <p className="text-sm text-slate-500 py-8">No listings of this type yet.</p>}
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 bottom-4 w-16 bg-gradient-to-l from-slate-50 to-transparent" />
+        </div>
+      </section>
+
+      {/* Recommendations — 2x2 card grid */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
+        <SectionHeader
+          title={hasPersonal ? 'Top picks for you' : 'Community favorites'}
+          helper={hasPersonal ? 'From your recommendation profile' : 'Most-recommended places across TravelMate'}
+        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {recs.map((r, i) => {
+            const dest = r.listing?.destination;
+            const pct = Math.round(Number(r.recommendation_score) * 100);
+            return (
+              <Link
+                key={r.listing?.listing_id ?? i}
+                href={`/listing/${r.listing?.listing_id}`}
+                className="group bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200 transition flex flex-col"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900 truncate group-hover:text-blue-700 transition">
+                      {r.listing?.name ?? '—'}
+                    </p>
+                    <p className="text-sm text-slate-500 truncate mt-0.5">{dest?.region_country ?? '—'}</p>
+                  </div>
+                  <span
+                    className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
+                      pct >= 90 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                    }`}
+                  >
+                    {pct >= 90 ? 'Excellent match' : 'Good match'}
+                  </span>
+                </div>
+                <div className="mt-4 flex items-center gap-3">
+                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-600 rounded-full" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="w-10 text-right text-sm font-semibold text-blue-700">{pct}%</span>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <span className="text-xs text-slate-400 truncate">{r.recommendation_reason ?? 'Community favorite'}</span>
+                  <span className="flex items-center gap-1 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition whitespace-nowrap">
+                    View place
                     <Chevron className="w-3.5 h-3.5" />
                   </span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Sidebar */}
-        <aside className="space-y-6">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <SectionHeader title="5-day forecast" helper="Sample data" />
-            <div className="grid grid-cols-5 gap-2 text-center">
-              {OUTLOOK.map((o) => (
-                <div key={o.day} className="rounded-xl bg-slate-50 py-3">
-                  <p className="text-xs font-medium text-slate-400">{o.day}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-800">{o.temp}°</p>
                 </div>
-              ))}
-            </div>
-            <p className="mt-4 text-xs text-slate-400">Live weather integration arrives after launch.</p>
-          </div>
+              </Link>
+            );
+          })}
+          {recs.length === 0 && (
+            <p className="md:col-span-2 bg-white border border-slate-200 rounded-2xl px-5 py-10 text-center text-sm text-slate-500 shadow-sm">
+              No recommendations yet — run a search to build your profile.
+            </p>
+          )}
+        </div>
+      </section>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <h2 className="text-base font-semibold text-slate-900 mb-4">Quick actions</h2>
-            <div className="space-y-2">
-              <Link
-                href="/search"
-                className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
-              >
-                Search destinations
-                <Chevron className="w-4 h-4 text-slate-300" />
-              </Link>
-              <Link
-                href="/owner"
-                className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
-              >
-                Manage my listings
-                <Chevron className="w-4 h-4 text-slate-300" />
-              </Link>
-              <Link
-                href="/apply"
-                className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
-              >
-                List your place
-                <Chevron className="w-4 h-4 text-slate-300" />
-              </Link>
-            </div>
+      {/* Forecast + Quick actions — balanced two-up */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
+          <SectionHeader
+            title="5-day forecast"
+            helper={forecastLocation ? `Live · ${forecastLocation}` : 'Sample data'}
+          />
+          <div className="grid grid-cols-5 gap-2 text-center">
+            {forecast.map((o, i) => (
+              <div key={`${o.day}-${i}`} className="rounded-xl bg-slate-50 py-3">
+                <p className="text-xs font-medium text-slate-400">{o.day}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">{o.temp}°</p>
+              </div>
+            ))}
           </div>
-        </aside>
-      </div>
+          <p className="mt-4 text-xs text-slate-400">
+            {forecastLocation
+              ? 'Live telemetry via Open-Meteo (Mission 1, Challenge 3).'
+              : 'Set your current location in Profile for live weather.'}
+          </p>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
+          <h2 className="text-base font-semibold text-slate-900 mb-4">Quick actions</h2>
+          <div className="space-y-2 flex-1 flex flex-col justify-between gap-2">
+            <Link
+              href="/search"
+              className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
+            >
+              Search destinations
+              <Chevron className="w-4 h-4 text-slate-300" />
+            </Link>
+            <Link
+              href="/owner"
+              className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
+            >
+              Manage my listings
+              <Chevron className="w-4 h-4 text-slate-300" />
+            </Link>
+            <Link
+              href="/apply"
+              className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
+            >
+              List your place
+              <Chevron className="w-4 h-4 text-slate-300" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Trending — full width */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-14 w-full">
+        <SectionHeader title="Trending destinations" helper="Highest-rated across our listings" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {trending.map((t, i) => (
+            <Link
+              key={t.name}
+              href={`/search?q=${encodeURIComponent(t.name)}`}
+              className="group bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200 transition flex flex-col"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-400">#{i + 1}</span>
+                <span className="flex items-center gap-1 text-sm font-semibold text-amber-600">
+                  <Star className="w-4 h-4" />
+                  {t.rating.toFixed(1)}
+                </span>
+              </div>
+              <p className="mt-3 font-semibold text-slate-900 leading-snug group-hover:text-blue-700 transition">{t.name}</p>
+              <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{t.country}</p>
+              <span className="mt-4 flex items-center gap-1 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition">
+                View listings
+                <Chevron className="w-3.5 h-3.5" />
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <Footer />
     </main>
