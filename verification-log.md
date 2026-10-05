@@ -1,44 +1,29 @@
-# Verification Log — TravelMate
+# Validation Log — TravelMate
 
-| Feature | Expected | Actual | Pass/Fail |
+| Scenario | Expected | Actual | Pass/Fail/Discuss |
 | --- | --- | --- | --- |
-| Signup (Process 1) | Auth user created + `app_users` profile row with matching `auth_user_id` | New user visible in Supabase Auth AND `app_users` table | Pass |
-| Signup sex field (Process 1 / dictionary) | Sex collected and stored per Mission 2 APP_USERS | Pill selector value stored in `app_users.sex` (varchar 10 safe) | Pass |
-| Signup, duplicate email | Clear rejection, no duplicate row | "That email is already registered — try signing in instead." | Pass |
-| Signup, short password | Rejection, no account created | Red error at <6 characters | Pass |
-| Login, valid credentials | Session starts, redirect to home | Redirects to `/` cleanly | Pass |
-| Login, wrong password | Error shown, no redirect | Red "Email or password is incorrect." | Pass |
-| Login, forgot password | Reset email triggered with feedback | Green notice after submitting email | Pass |
-| Auth fields empty on load | No pre-filled text after refresh/logout | Mount cleanup wipes injected values on /login and /signup | Pass |
-| Auth autocomplete suppression | No dropdowns or suggestions on any auth field | Decoy inputs + removed stored credentials + autoComplete=off | Pass |
-| Home "Top picks for you" | Top recommendations with match % from live recommendations table | 2x2 card grid with progress bars, Excellent/Good match chips, and reason text | Pass |
-| Top picks clickable | Row click opens the Listing Detail | Navigates to /listing/<id> | Pass |
-| Dashboard explore rail (Process 3) | Live listings browse with type pills for every user | Rail renders all listings; pills filter; cards open detail; new accounts see it first | Pass |
-| Trending destinations | Highest average listing rating per destination, top 4 | Full-width cards render rated destinations; click searches that destination | Pass |
-| 5-day forecast | Clearly labeled sample, no dev notes | "Sample data" tag + post-launch footnote | Pass |
-| Home search handoff | Routes to /search?q=... and filters listings | "Kyoto" returns Kyoto listings | Pass |
-| Fuzzy search (Process 3) | Typo-tolerant keyword matching incl. country names | "jaan" returns Japan listings via pg_trgm similarity | Pass |
-| Search cards clickable | Card click opens Listing Detail | Navigates to /listing/<id> | Pass |
-| Search type tabs | All/Attractions/Hotels/Restaurants filter results | Tabs filter the live listings correctly | Pass |
-| Navbar auth state | Login/Signup when logged out; identity + Log out when logged in | Correct on / and /search; hidden on /login and /signup | Pass |
-| Navbar signed-in identity | Signed-in accounts always show identity | Session-based branch with email fallback for profile-less accounts; refined icon logout | Pass |
-| Navbar role links | Role-appropriate links only | Admin/Applications for admins; My Listings for owners; Become a publisher for travelers | Pass |
-| Listing detail view | Shows subtype details + reviews per listing type | Attraction shows activity/coords; hotel shows stars; restaurant shows cuisine | Pass |
-| Seeded listing photos | Search cards + detail gallery render real images | Local assets in /public/img/listings render; works offline | Pass |
-| Review submission (Process 4) | Review inserted + listings.average_rating recalculated | New review published, average updated live | Pass |
-| BR-011 duplicate review block | Second review by same user rejected | Red BR-011 error; DB unique constraint as backstop | Pass |
-| Review form role accuracy | Message matches account state | Logged-out / profile-less / profiled states each show correct card | Pass |
-| Review photo upload (Process 4) | Review carries photo_url; image renders in review card | Photo stored in Media/reviews and visible under review text | Pass |
-| Admin gate (Secure It) | Non-admin visiting /admin sees Access Denied | End user blocked with role panel; demo admin sees manager | Pass |
-| Admin publish transaction (Process 5) | listings + subtype + photos rows created; appears in /search | Listing published with uploaded photo, visible in search | Pass |
-| Admin photo upload (Process 5) | File stored in Media/listings/<id>/ and renders on cards | Upload succeeded; file visible in Storage bucket | Pass |
-| Delete with reviews blocked | Referential integrity prevents orphaned reviews | Delete of reviewed listing refused with clear message | Pass |
-| Apply submission (Process 5a) | Application row created with status pending | APP-001 visible in business_applications | Pass |
-| BR-025 pending uniqueness | Second pending application blocked | Pending card replaces form; DB partial unique index backstop | Pass |
-| Admin approval (Process 5a) | Approve creates business_owners row + status approved | OWN-001 created; applicant becomes publisher | Pass |
-| Owner scoped publish (BR-026) | Owner listing stamped uploaded_by = own user_id; appears in /search | Owner-published listing searchable; ownership stamped | Pass |
-| Owner scoping (Secure It) | Owner sees/manages only own listings | /owner shows only own rows; RLS rejects cross-access | Pass |
-| Owner creates destination (BR-012/027 revised) | New DEST row + listing stamped uploaded_by | Owner-typed place appears in search under the new destination | Pass |
-| Profile update (Process 1) | Name/sex/location edits persist to app_users | Saved values re-render after reload | Pass |
-| Preference save (Process 2) | user_preferences row created/updated per user | Pills saved; recommendations input complete | Pass |
-| Trips view (ERD) | Upcoming vs completed split by end_date | Trip cards grouped correctly; empty state for new users | Pass |
+| Signup fields vs live schema | Mission 2 dictionary columns accepted | Live table uses name/password_hash/current_location/auth_user_id; inserts failed until app adapted | Discuss – app follows live schema; dictionary needs update |
+| Registration sex input | All Process 1 inputs collected in UI | Sex was missing from signup UI; added pill selector storing to app_users.sex | Pass – paper compliance restored |
+| New-user primary key strategy | New profile rows link cleanly to Supabase Auth | user_id varchar(20) rejects 36-char UUIDs; app writes USR-<8hex> into user_id and keeps the UUID in auth_user_id | Discuss – documented id strategy |
+| Mission 3 trigger placement | Triggers fire only on intended tables | enforce_single_review_subtype attached to app_users blocked every profile insert | Fail → Fixed – dropped from app_users |
+| Signup error transparency | Errors state an actionable reason | Initial generic error hid PostgREST objects; improved catch surfaces real messages | Pass – after fix |
+| Email confirmation at signup | Production norm: confirm email before first login | Disabled in Supabase Auth so demo accounts can sign in instantly | Discuss – demo-mode decision; re-enable post-Go-Live |
+| Browser credential autofill | Auth fields stay empty with no dropdowns | Chrome ignores autocomplete=off when credentials are saved; solved with decoy inputs, stored-credential removal, and mount cleanup | Discuss – browser-level behavior, documented |
+| "Now Boarding" naming | Section names read clearly | Label implied flight departure; renamed to "Top picks for you" with match chips | Pass – copy clarity |
+| "Updated hourly" claim | Copy matches system behavior | Trending recomputes per page load; inaccurate label replaced with honest helper text | Pass – honest copy |
+| Profile email immutability | Users may change login email | Email is the auth identifier; shown read-only with explanation; change flow deferred post-Go-Live | Discuss |
+| App works in any browser | Identical behavior everywhere | Brave Shields blocked Supabase ("Failed to fetch"); Chrome works | Discuss – demo + docs will specify Chrome |
+| 5-day weather outlook | Live telemetry per Mission 1 Challenge #3 | Static demo feed (no weather table exists); labeled "Sample data" | Discuss – placeholder until external feed integrated post-Go-Live |
+| Activity/Budget chips | Filter results by activity/budget | Visual selection only – listings has no activity/budget column | Discuss – wire chips via attractions join next sprint |
+| Who uploads listing photos | Owners/admins upload their own assets (Process 5) | Seeded rows use local stand-in assets; real uploads flow through Media bucket prefixes | Discuss – stand-ins until curated |
+| Business-owner self-service | Owners post their own listings | Originally admin-only curation; revised: Process 5a application/approval, business_owners role, scoped /owner dashboard (BR-026) | Pass – implemented as paper revision |
+| Marketplace onboarding latency | Owners publish immediately after signup | Approval queue introduces review delay (Process 5a) | Discuss – trust vs speed; auto-approve tier possible post-Go-Live |
+| Server-side ID generation | Client computes next primary keys | RLS hides other rows from applicants; security-definer rpcs new_application_id / new_owner_id generate IDs | Discuss – pattern reused for future queues |
+| Destination creation rights | Owners might add new places | BR-027 revised: approved owners (vetted via Process 5a) may create destinations; travelers cannot; rename/delete stays admin-only | Discuss – vetted-publisher model |
+| Listing photos source | Real photos render reliably | Third-party placeholder service unreachable from campus network; switched to local assets in /public/img/listings | Pass – works offline |
+| 4-tile photo gallery | Design shows 4 tiles | DB seeds 1 photo per listing (BR-019 permits many) | Discuss – hero cover until upload flow adds more |
+| New-user recommendation cold start | Personalized picks for every logged-in user | Brand-new users have no recommendations rows; engine falls back to global top-4 | Discuss – cold-start strategy until search_logs accumulate |
+| Admin writing reviews | Signed-in users can review | Demo admin existed only in administrators; review flow requires app_users profile | Fixed – dual-role profile row (USR-ADM001) + accurate per-state messaging |
+| Storage bucket strategy | Dedicated listing-photos bucket | Bucket never created → "bucket not found"; consolidated into public Media bucket with listings/ + reviews/ prefixes | Discuss – single bucket governance |
+| Review photos schema | reviews table stores a photo reference | Mission 2/3 schema had no photo column; added photo_url text | Discuss – dictionary needs update |
+| Trip Planner in client design | Every screen maps to a named Mission 1 process | trips/trip_items are ERD entities with no named process in Mission 1 | Discuss – full builder deferred; trips view added to /profile |
