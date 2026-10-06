@@ -1,47 +1,25 @@
-# Verification Log — TravelMate
+# TravelMate — Verification Log
 
-| Feature | Expected | Actual | Pass/Fail |
-| --- | --- | --- | --- |
-| Signup (Process 1) | Auth user created + `app_users` profile row with matching `auth_user_id` | New user visible in Supabase Auth AND `app_users` table | Pass |
-| Signup sex field (Process 1 / dictionary) | Sex collected and stored per Mission 2 APP_USERS | Pill selector value stored in `app_users.sex` (varchar 10 safe) | Pass |
-| Signup, duplicate email | Clear rejection, no duplicate row | "That email is already registered — try signing in instead." | Pass |
-| Signup, short password | Rejection, no account created | Red error at <6 characters | Pass |
-| Login, valid credentials | Session starts, redirect to home | Redirects to `/` cleanly | Pass |
-| Login, wrong password | Error shown, no redirect | Red "Email or password is incorrect." | Pass |
-| Login, forgot password | Reset email triggered with feedback | Green notice after submitting email | Pass |
-| Auth fields empty on load | No pre-filled text after refresh/logout | Mount cleanup wipes injected values on /login and /signup | Pass |
-| Auth autocomplete suppression | No dropdowns or suggestions on any auth field | Decoy inputs + removed stored credentials + autoComplete=off | Pass |
-| Home "Top picks for you" | Top recommendations with match % from live recommendations table | 2x2 card grid with progress bars, Excellent/Good match chips, and reason text | Pass |
-| Top picks clickable | Row click opens the Listing Detail | Navigates to /listing/<id> | Pass |
-| Dashboard explore rail (Process 3) | Live listings browse with type pills for every user | Rail renders all listings; pills filter; cards open detail; new accounts see it first | Pass |
-| Trending destinations | Highest average listing rating per destination, top 4 | Full-width cards render rated destinations; click searches that destination | Pass |
-| 5-day forecast (live) | Real telemetry per Mission 1 Challenge 3 | Live Open-Meteo 5-day temps by profile location; fallback strip when no location | Pass |
-| Recent searches (Process 3 output) | Signed-in users see their last queries | Chips render from search_logs and re-run the search on click | Pass |
-| Home search handoff | Routes to /search?q=... and filters listings | "Kyoto" returns Kyoto listings | Pass |
-| Fuzzy search (Process 3) | Typo-tolerant keyword matching incl. country names | "jaan" returns Japan listings via pg_trgm similarity | Pass |
-| Search cards clickable | Card click opens Listing Detail | Navigates to /listing/<id> | Pass |
-| Search type tabs | All/Attractions/Hotels/Restaurants filter results | Tabs filter the live listings correctly | Pass |
-| Search logging (Process 3 output) | Every search inserts a search_logs row | LOG-321+ visible with keywords/activity_filters/search_count | Pass |
-| Navbar auth state | Login/Signup when logged out; identity + Log out when logged in | Correct on / and /search; hidden on /login and /signup | Pass |
-| Navbar signed-in identity | Signed-in accounts always show identity | Session-based branch with email fallback; refined icon logout links to /profile | Pass |
-| Navbar role links | Role-appropriate links only | Admin/Applications for admins; My Listings for owners; Become a publisher for travelers | Pass |
-| Listing detail view | Shows subtype details + reviews per listing type | Attraction shows activity/coords; hotel shows stars; restaurant shows cuisine | Pass |
-| Seeded listing photos | Search cards + detail gallery render real images | Local assets in /public/img/listings render; works offline | Pass |
-| Review submission (Process 4) | Review inserted + listings.average_rating recalculated | New review published, average updated live | Pass |
-| BR-011 duplicate review block | Second review by same user rejected | Red BR-011 error; DB unique constraint as backstop | Pass |
-| Review form role accuracy | Message matches account state | Logged-out / profile-less / profiled states each show correct card | Pass |
-| Review photo upload (Process 4) | Review carries photo_url; image renders in review card | Photo stored in Media/reviews and visible under review text | Pass |
-| Admin gate (Secure It) | Non-admin visiting /admin sees Access Denied | End user blocked with role panel; demo admin sees manager | Pass |
-| Admin publish transaction (Process 5) | listings + subtype + photos rows created; appears in /search | Listing published with uploaded photo, visible in search | Pass |
-| Admin photo upload (Process 5) | File stored in Media/listings/<id>/ and renders on cards | Upload succeeded; file visible in Storage bucket | Pass |
-| Delete with reviews blocked | Referential integrity prevents orphaned reviews | Delete of reviewed listing refused with clear message | Pass |
-| Apply submission (Process 5a) | Application row created with status pending | APP-001 visible in business_applications | Pass |
-| BR-025 pending uniqueness | Second pending application blocked | Pending card replaces form; DB partial unique index backstop | Pass |
-| Admin approval (Process 5a) | Approve creates business_owners row + status approved | OWN-001 created; applicant becomes publisher | Pass |
-| Owner scoped publish (BR-026) | Owner listing stamped uploaded_by = own user_id; appears in /search | Owner-published listing searchable; ownership stamped | Pass |
-| Owner scoping (Secure It) | Owner sees/manages only own listings | /owner shows only own rows; RLS rejects cross-access | Pass |
-| Owner creates destination (BR-012/027 revised) | New DEST row + listing stamped uploaded_by | Owner-typed place appears in search under the new destination | Pass |
-| Profile update (Process 1) | Name/sex/location edits persist to app_users | Saved values re-render after reload | Pass |
-| Preference save (Process 2) | user_preferences row created/updated per user | Pills saved; recommendations input complete | Pass |
-| Trips view (ERD) | Upcoming vs completed split by end_date | Trip cards grouped correctly; empty state for new users | Pass |
-| 404 & loading states | Unknown routes show branded recovery page | /nope renders 404 card with Discover/Search links; loading indicator on route changes | Pass |
+
+| Check | Expected | Evidence / How | Status |
+|---|---|---|---|
+| Smart search "japan" | Grouped Destinations + Places dropdown | `search_listings` joins destinations; dropdown not clipped after hero `overflow-hidden` removal | Pass |
+| Search filters end-to-end | Type/Budget/Activity narrow results | Chips → URL params → `/search` filters via `budget_tier`/`activity_tag`; Clear filters resets | Pass |
+| Trip capacity | 3 places/day enforced | Over-capacity add shows "Trip full" error | Pass |
+| Auto-plan geography | No cross-region same-day itineraries | Stops receive contiguous day blocks in stop order; leftovers fill remaining days | Pass |
+| Schedule-aware slots | Attractions planned inside opening hours | `pickSlotTimes` filters 9am/1pm against `schedules.open_time/close_time` | Pass |
+| Trip lifecycle | Create/edit/delete/status persist | Edit modal updates name+dates; delete removes items then trip; auto status + manual override | Pass |
+| Auto-stop creation | Adding a place with no stops creates one | `extractStopLabel` from `region_country` (strips country suffix) | Pass |
+| Booking loop | Traveler request → owner decision → traveler sees outcome | Pending appears in Business hub; Approve flips to confirmed; `/my-trips` shows status; cancel-pending works | Pass |
+| BR-011 one review per traveler | Duplicate review blocked | Second submit raises BR-011; `recalc_listing_rating` updates average | Pass |
+| BR-012 destination required | Listing without destination rejected | Publish form validates existing/new destination | Pass |
+| BR-026 ownership stamp | Listings carry `uploaded_by` | Owner page inserts auth-mapped user id; RLS scopes owner queries | Pass |
+| Role routing | Managers never see traveler dashboard | owner/admin/pending hitting `/` are replaced to `/business` | Pass |
+| Navbar account switch | Name updates instantly on login/logout | `onAuthStateChange` subscription verified across Ace ↔ Roan | Pass |
+| Back-button session leak | No previous-account pages after switch | `replaceState` on auth transitions; back lands on login/public pages only | Pass |
+| Manager action gating | Owners/admins can't book/add-to-trip/review | Buttons hidden; Manager view card shown; `/my-trips` redirects | Pass |
+| Skeletons & prefetch | No blank flashes; instant nav feel | Shimmer skeletons on dashboard; navbar prefetch observed in Network tab | Pass |
+| Animations & accessibility | Smooth entrances; reduced-motion respected | Stagger fade-up cards, slide-up modals, btn-press; `prefers-reduced-motion` disables | Pass |
+| 404 listing | Branded not-found with recovery links | `/listing/NOPE` shows 404 + Search/Go back | Pass |
+| SQL idempotency | Re-runnable schema script | `if not exists` columns; drop-then-create RPC; single transaction order | Pass |
+| Live weather | Forecast from profile location | Open-Meteo geocode + daily max temps; fallback sample data | Pass |
