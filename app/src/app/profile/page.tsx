@@ -195,8 +195,11 @@ export default function ProfilePage() {
               <h2 className="text-base font-semibold text-slate-900 mb-4">Personal information</h2>
               <form onSubmit={saveProfile} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Full name</label>
-                  <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} required />
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-slate-700">Full name</label>
+                    <span className="text-xs text-slate-400">{name.length}/50</span>
+                  </div>
+                  <input value={name} onChange={(e) => setName(e.target.value)} maxLength={50} className={inputCls} required />
                 </div>
                 <div>
                   <span className="block text-sm font-medium text-slate-700 mb-1.5">Sex</span>
@@ -209,8 +212,11 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Current location</label>
-                  <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, Country" className={inputCls} />
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-slate-700">Current location</label>
+                    <span className="text-xs text-slate-400">{location.length}/100</span>
+                  </div>
+                  <input value={location} onChange={(e) => setLocation(e.target.value)} maxLength={100} placeholder="City, Country" className={inputCls} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
