@@ -103,7 +103,7 @@ export default function LoginPage() {
         </>
       }
     >
-      <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
+      <form onSubmit={handleLogin} className="space-y-4 animate-slide-up" autoComplete="off">
         {/* Decoy fields absorb browser autofill heuristics */}
         <input type="text" name="decoy-user" autoComplete="username" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true" />
         <input type="password" name="decoy-pass" autoComplete="current-password" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true" />

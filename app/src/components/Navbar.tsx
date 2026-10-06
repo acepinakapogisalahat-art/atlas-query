@@ -25,19 +25,48 @@ export default function Navbar() {
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadUser() {
       const { data: session } = await supabase.auth.getSession();
-      if (session.session?.user?.id) {
+      const authId = session.session?.user?.id ?? null;
+      if (!authId) {
+        if (mounted) setUserName(null);
+        return;
+      }
+      const { data: profile } = await supabase
+        .from('app_users')
+        .select('name')
+        .eq('auth_user_id', authId)
+        .maybeSingle();
+      if (mounted) setUserName(profile?.name ?? null);
+    }
+
+    loadUser();
+
+    // Instantly update when auth changes (login / logout / account switch)
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const authId = session?.user?.id ?? null;
+      if (!authId) {
+        setUserName(null);
+        return;
+      }
+      // Deferred so we never query Supabase inside the auth callback (lock-safe)
+      setTimeout(async () => {
         const { data: profile } = await supabase
           .from('app_users')
           .select('name')
-          .eq('auth_user_id', session.session.user.id)
+          .eq('auth_user_id', authId)
           .maybeSingle();
-        setUserName(profile?.name ?? null);
-      }
-    }
-    loadUser();
-  }, [supabase]);
+        if (mounted) setUserName(profile?.name ?? null);
+      }, 0);
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [supabase, pathname]);
 
   const navCls = (path: string) =>
     pathname === path

@@ -134,7 +134,7 @@ export default function ProfilePage() {
   if (role.loading) return <main className="p-8 text-center">Loading your profile…</main>;
   if (!role.authId) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-8 pb-16 page-enter">
         <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-md text-center">
           <h1 className="text-2xl font-semibold text-slate-900 mb-2">Your profile</h1>
           <p className="text-slate-500 text-sm">
@@ -191,7 +191,7 @@ export default function ProfilePage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left: personal info + trips */}
           <div className="lg:col-span-2 space-y-8">
-            <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm animate-slide-up">
               <h2 className="text-base font-semibold text-slate-900 mb-4">Personal information</h2>
               <form onSubmit={saveProfile} className="space-y-4">
                 <div>

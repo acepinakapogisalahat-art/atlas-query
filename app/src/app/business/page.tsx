@@ -210,7 +210,7 @@ export default function BusinessPage() {
 
   if (role.loading || loading) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center pb-16 page-enter">
         <div className="text-center">
           <div className="w-12 h-12 mx-auto rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
           <p className="mt-4 text-sm text-slate-500">Loading your business dashboard…</p>
@@ -308,7 +308,7 @@ export default function BusinessPage() {
         </div>
 
         {/* Stat strip */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
           <StatTile 
             label="Active listings" 
             value={String(listings.length)} 

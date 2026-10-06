@@ -287,7 +287,7 @@ export default function ListingDetailPage() {
   const avg = listing.average_rating != null ? Number(listing.average_rating) : null;
 
   return (
-    <main className="min-h-screen bg-slate-50 pb-16">
+    <main className="min-h-screen bg-slate-50 pb-16 page-enter">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <button
           onClick={() => router.back()}
@@ -748,8 +748,8 @@ function AddToTripModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto animate-slide-up" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-slate-900">Add to trip</h3>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">

@@ -275,7 +275,7 @@ export default function OwnerPage() {
 
   if (role.loading) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center pb-16 page-enter">
         <p className="text-sm text-slate-400">Checking role…</p>
       </main>
     );
@@ -310,7 +310,7 @@ export default function OwnerPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 pb-16">
+    <main className="min-h-screen bg-slate-50 pb-16 page-enter">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
@@ -351,7 +351,7 @@ export default function OwnerPage() {
         {/* Main grid: form (left) + listings (right) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           {/* LEFT — publish/edit form */}
-          <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm lg:sticky lg:top-6">
+          <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm lg:sticky lg:top-6 animate-slide-up">
             <h2 className="text-xl font-bold text-slate-900 mb-4">
               {editing ? `Edit ${form.listing_id}` : 'Publish a listing'}
             </h2>
@@ -530,7 +530,7 @@ export default function OwnerPage() {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '150ms' }}>
                 {listings.map((l) => {
                   const rating = l.average_rating != null ? Number(l.average_rating) : null;
                   return (
