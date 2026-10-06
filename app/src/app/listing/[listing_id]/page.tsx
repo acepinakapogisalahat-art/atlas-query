@@ -609,21 +609,17 @@ function AddToTripModal({
       
       // Create new trip if selected
       if (!tripId && newTripName.trim()) {
-        const { data: existing } = await supabase.from('trips').select('trip_id');
-        const nums = (existing ?? [])
-          .map((r: any) => parseInt(String(r.trip_id).replace(/\D/g, ''), 10))
-          .filter((n: number) => !isNaN(n));
-        const nextId = `TRP-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`;
+        const { data: tripId, error: idErr } = await supabase.rpc('new_trip_id');
+        if (idErr) throw idErr;
         
         const { error: tripErr } = await supabase.from('trips').insert({
-          trip_id: nextId,
+          trip_id: tripId as string,
           user_id: userId,
           trip_name: newTripName.trim(),
           start_date: newTripStart || null,
           end_date: newTripEnd || null,
         });
         if (tripErr) throw tripErr;
-        tripId = nextId;
       }
 
       if (!tripId) throw new Error('Please select or create a trip.');
@@ -631,7 +627,7 @@ function AddToTripModal({
       // Check if already in trip
       const { data: existing } = await supabase
         .from('trip_items')
-        .select('item_id')
+        .select('trip_item_id')
         .eq('trip_id', tripId)
         .eq('listing_id', listingId)
         .maybeSingle();
@@ -640,9 +636,10 @@ function AddToTripModal({
 
       // Add to trip
       const { error: itemErr } = await supabase.from('trip_items').insert({
+        trip_item_id: `ITI-${Date.now().toString().slice(-8)}`,
         trip_id: tripId,
         listing_id: listingId,
-        visit_order: 999, // Add to end
+        sequence_no: 999, // Add to end
       });
       if (itemErr) throw itemErr;
 

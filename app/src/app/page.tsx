@@ -26,17 +26,33 @@ type ExploreCard = {
   image_url: string | null;
   average_rating: number | null;
   description: string | null;
-  destination: { destination_name: string; region_country: string } | null;
+  destination: { destination_id: string; destination_name: string; region_country: string } | null;
 };
 
 type ForecastDay = { day: string; temp: number };
+
+type TripItem = {
+  key: string;
+  listing_id: string;
+  name: string;
+  destination_id: string | null;
+  destination_name: string | null;
+  region_country: string | null;
+  listing_type: string | null;
+  rating: number | null;
+  planned_date: string | null;
+  start_time: string | null;
+  sequence_no: number | null;
+  raw: any;
+};
 
 type TripData = {
   trip_id: string;
   trip_name: string | null;
   start_date: string | null;
   end_date: string | null;
-  items: string[];
+  stops: { label: string; days: number }[];
+  items: TripItem[];
 };
 
 const REC_SELECT =
@@ -53,6 +69,8 @@ const FALLBACK_OUTLOOK: ForecastDay[] = [
   { day: 'Thu', temp: 23 },
   { day: 'Fri', temp: 24 },
 ];
+
+const byRating = (a: ExploreCard, b: ExploreCard) => (b.average_rating ?? -1) - (a.average_rating ?? -1);
 
 function Star({ className }: { className?: string }) {
   return (
@@ -74,6 +92,31 @@ function Chevron({ className }: { className?: string }) {
   );
 }
 
+function PlusIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-4 h-4'}>
+      <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MapIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-4 h-4'}>
+      <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" strokeLinejoin="round" />
+      <path d="M9 4v14M15 6v14" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-4 h-4'}>
+      <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function SectionHeader({ title, helper }: { title: string; helper: string }) {
   return (
     <div className="flex items-baseline justify-between mb-4">
@@ -83,10 +126,20 @@ function SectionHeader({ title, helper }: { title: string; helper: string }) {
   );
 }
 
+function isUpcoming(t: { end_date: string | null }) {
+  const today = new Date().toISOString().slice(0, 10);
+  return t.end_date ? t.end_date >= today : true;
+}
+
+function fmtDate(d: string | null) {
+  return d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+}
+
 export default function HomePage() {
   const router = useRouter();
   const supabase = createClient();
   const [firstName, setFirstName] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [recs, setRecs] = useState<Rec[]>([]);
   const [hasPersonal, setHasPersonal] = useState(false);
   const [explore, setExplore] = useState<ExploreCard[]>([]);
@@ -98,8 +151,24 @@ export default function HomePage() {
   const [query, setQuery] = useState('');
   const [activity, setActivity] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
+
+  // Planner state
   const [trips, setTrips] = useState<TripData[]>([]);
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [showTripModal, setShowTripModal] = useState(false);
+  const [plannerQuery, setPlannerQuery] = useState('');
+  const [plannerErr, setPlannerErr] = useState<string | null>(null);
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [startName, setStartName] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [startBusy, setStartBusy] = useState(false);
+  const [planning, setPlanning] = useState(false);
+  const [destPickerOpen, setDestPickerOpen] = useState(false);
+  const [destSearch, setDestSearch] = useState('');
+  const [allDests, setAllDests] = useState<{ destination_name: string; region_country: string }[]>([]);
+  const [schedMap, setSchedMap] = useState<Record<string, { open: string; close: string }>>({});
+
   const [descMap, setDescMap] = useState<Record<string, string>>({});
   const [subtypeMap, setSubtypeMap] = useState<Record<string, { label: string; value: string }>>({});
   const [destExtra, setDestExtra] = useState<Record<string, { count: number; top: string[] }>>({});
@@ -109,7 +178,6 @@ export default function HomePage() {
     | null
   >(null);
   const hoverTimer = useRef<any>(null);
-  const [userId, setUserId] = useState<string | null>(null);
 
   async function loadForecast(loc: string | null) {
     if (!loc) {
@@ -151,6 +219,63 @@ export default function HomePage() {
     }
   }
 
+  async function fetchTrips(uid: string): Promise<TripData[]> {
+    const { data: t } = await supabase
+      .from('trips').select('*').eq('user_id', uid)
+      .order('start_date', { ascending: false });
+    const rows = (t ?? []) as any[];
+    if (!rows.length) return [];
+    const ids = rows.map((r) => r.trip_id);
+    const { data: items } = await supabase.from('trip_items').select('*').in('trip_id', ids);
+    const listingIds = [...new Set((items ?? []).map((i: any) => i.listing_id).filter(Boolean))];
+    const lMap: Record<string, { name: string; destination_id: string | null; destination_name: string | null; region_country: string | null; listing_type: string | null; average_rating: number | null }> = {};
+    if (listingIds.length) {
+      const { data: ls } = await supabase
+        .from('listings')
+        .select('listing_id, name, listing_type, average_rating, destination:destination_id(destination_id, destination_name, region_country)')
+        .in('listing_id', listingIds);
+      (ls ?? []).forEach((l: any) => {
+        lMap[l.listing_id] = {
+          name: l.name,
+          destination_id: l.destination?.destination_id ?? null,
+          destination_name: l.destination?.destination_name ?? null,
+          region_country: l.destination?.region_country ?? null,
+          listing_type: l.listing_type ?? null,
+          average_rating: l.average_rating != null ? Number(l.average_rating) : null,
+        };
+      });
+    }
+    const map: Record<string, TripItem[]> = {};
+    (items ?? []).forEach((i: any) => {
+      (map[i.trip_id] ??= []).push({
+        key: i.trip_item_id ?? i.item_id ?? i.id ?? `${i.trip_id}|${i.listing_id}`,
+        listing_id: i.listing_id,
+        destination_id: lMap[i.listing_id]?.destination_id ?? null,
+        name: lMap[i.listing_id]?.name ?? i.listing_id,
+        destination_name: lMap[i.listing_id]?.destination_name ?? null,
+        region_country: lMap[i.listing_id]?.region_country ?? null,
+        listing_type: lMap[i.listing_id]?.listing_type ?? null,
+        rating: lMap[i.listing_id]?.average_rating ?? null,
+        planned_date: i.planned_date ?? null,
+        start_time: i.start_time ?? null,
+        sequence_no: i.sequence_no ?? null,
+        raw: i,
+      });
+    });
+    return rows.map((r) => ({
+      trip_id: r.trip_id,
+      trip_name: r.trip_name ?? r.name ?? null,
+      start_date: r.start_date ?? null,
+      end_date: r.end_date ?? null,
+      stops: Array.isArray(r.stops) ? (r.stops as { label: string; days: number }[]) : [],
+      items: map[r.trip_id] ?? [],
+    }));
+  }
+
+  async function refreshTrips() {
+    if (userId) setTrips(await fetchTrips(userId));
+  }
+
   useEffect(() => {
     async function load() {
       const { data: session } = await supabase.auth.getSession();
@@ -166,6 +291,7 @@ export default function HomePage() {
           uid = profile.user_id;
           setUserId(profile.user_id);
           setFirstName(String(profile.name ?? '').split(' ')[0] || null);
+          loadForecast(profile.current_location ?? null);
         }
       }
 
@@ -207,17 +333,20 @@ export default function HomePage() {
         { data: attrs },
         { data: hotelRows },
         { data: restRows },
+        { data: schedRows },
       ] = await Promise.all([
         supabase.from('destinations').select('destination_id, destination_name, region_country'),
         supabase.from('listings').select('destination_id, average_rating'),
         supabase
           .from('listings')
-          .select('listing_id, name, listing_type, image_url, average_rating, description, destination:destination_id(destination_name, region_country)'),
-        supabase.from('attractions').select('attraction_id, activity_name'),
+          .select('listing_id, name, listing_type, image_url, average_rating, description, destination:destination_id(destination_id, destination_name, region_country)'),
+        supabase.from('attractions').select('attraction_id, activity_name, schedule_id'),
         supabase.from('hotels').select('hotel_id, star_rating'),
         supabase.from('restaurants').select('restaurant_id, cuisine_type'),
+        supabase.from('schedules').select('schedule_id, open_time, close_time'),
       ]);
       setExplore((exploreRows as unknown as ExploreCard[]) ?? []);
+      setAllDests((dests ?? []) as { destination_name: string; region_country: string }[]);
 
       const dDesc: Record<string, string> = {};
       const dExtra: Record<string, { count: number; top: string[] }> = {};
@@ -244,6 +373,15 @@ export default function HomePage() {
         if (r.cuisine_type) sMap[r.restaurant_id] = { label: 'Cuisine', value: r.cuisine_type };
       });
       setSubtypeMap(sMap);
+
+      const schRows: Record<string, { open: string; close: string }> = {};
+      const schList = (schedRows ?? []) as any[];
+      const schById = new Map(schList.map((s: any) => [s.schedule_id, s]));
+      (attrs ?? []).forEach((a: any) => {
+        const s = a.schedule_id ? schById.get(a.schedule_id) : null;
+        if (s) schRows[a.attraction_id] = { open: String(s.open_time ?? '00:00:00').slice(0, 5), close: String(s.close_time ?? '23:59:00').slice(0, 5) };
+      });
+      setSchedMap(schRows);
 
       const dMap = new Map<string, { destination_name: string; region_country: string }>();
       (dests ?? []).forEach((d: any) => dMap.set(d.destination_id, d));
@@ -287,6 +425,333 @@ export default function HomePage() {
     router.push(`/search?${params.toString()}`);
   }
 
+  // ---- Planner actions ----
+  async function createTrip(name: string, start: string, end: string): Promise<string> {
+    if (!name.trim()) throw new Error('Give your trip a name.');
+    if (start && end && end < start) throw new Error('End date must be after the start date.');
+    const { data: tripId, error: idErr } = await supabase.rpc('new_trip_id');
+    if (idErr) throw idErr;
+    const { error } = await supabase.from('trips').insert({
+      trip_id: tripId as string,
+      user_id: userId,
+      trip_name: name.trim(),
+      start_date: start || null,
+      end_date: end || null,
+    });
+    if (error) throw error;
+    return tripId as string;
+  }
+
+  async function handleStartCreate(e: React.FormEvent) {
+    e.preventDefault();
+    setPlannerErr(null);
+    setStartBusy(true);
+    try {
+      const id = await createTrip(startName, startDate, endDate);
+      await refreshTrips();
+      setSelectedTripId(id);
+      setStartName(''); setStartDate(''); setEndDate('');
+    } catch (err: any) {
+      setPlannerErr(err?.message ?? 'Could not create the trip.');
+    }
+    setStartBusy(false);
+  }
+
+  async function addItem(listingId: string) {
+    const trip = selectedTrip;
+    if (!trip) return;
+    setPlannerErr(null);
+    setAddingId(listingId);
+    try {
+      if (trip.items.length >= capacity) {
+        throw new Error(
+          tripDays
+            ? `Trip full: ${tripDays} day${tripDays === 1 ? '' : 's'} fit ${capacity} places (3 per day). Extend the dates or remove a place.`
+            : 'Starter limit reached (6 places). Set trip dates to unlock more slots.'
+        );
+      }
+      const { error } = await supabase.from('trip_items').insert({
+        trip_item_id: `ITI-${Date.now().toString().slice(-8)}`,
+        trip_id: trip.trip_id,
+        listing_id: listingId,
+        sequence_no: (trip.items.length ?? 0) + 1,
+        planned_date: null,
+        start_time: null,
+        notes: null,
+      });
+      if (error) throw error;
+      await refreshTrips();
+    } catch (err: any) {
+      setPlannerErr(err?.message ?? 'Could not add this place.');
+    }
+    setAddingId(null);
+  }
+
+  async function removeItem(it: TripItem) {
+    const { error } = await supabase.from('trip_items').delete().eq('trip_item_id', it.key);
+    if (!error) await refreshTrips();
+  }
+
+  function stopsFor(date: string) {
+    return (selectedTrip?.items ?? [])
+      .filter((i) => i.planned_date === date)
+      .sort((a, b) => (a.sequence_no ?? 0) - (b.sequence_no ?? 0));
+  }
+
+  function slotLabel(it: TripItem) {
+    const t = it.start_time ?? '';
+    if (t.startsWith('09')) return 'Morning';
+    if (t.startsWith('13')) return 'Afternoon';
+    if (t.startsWith('18')) return 'Evening';
+    return ['Morning', 'Afternoon', 'Evening'][(it.sequence_no ?? 1) - 1] ?? 'Stop';
+  }
+
+  function fmtTime(t: string | null) {
+    if (!t) return '';
+    const [h, m] = t.split(':');
+    const hr = parseInt(h, 10);
+    const ampm = hr >= 12 ? 'PM' : 'AM';
+    const hr12 = hr % 12 === 0 ? 12 : hr % 12;
+    return `${hr12}:${m} ${ampm}`;
+  }
+
+  async function updateTripDates(start: string, end: string) {
+    const trip = selectedTrip;
+    if (!trip) return;
+    if (start && end && end < start) {
+      setPlannerErr('End date must be after the start date.');
+      return;
+    }
+    setPlannerErr(null);
+    const { error } = await supabase
+      .from('trips')
+      .update({ start_date: start || null, end_date: end || null })
+      .eq('trip_id', trip.trip_id);
+    if (error) setPlannerErr(error.message);
+    else await refreshTrips();
+  }
+
+  function pickSlotTimes(type: string | null, listingId: string): string[] {
+    if (type === 'Restaurant') return ['12:00:00', '18:00:00'];
+    const base = ['09:00:00', '13:00:00'];
+    const sched = schedMap[listingId];
+    if (!sched) return base;
+    const ok = base.filter((s) => sched.open <= s.slice(0, 5) && s.slice(0, 5) < sched.close);
+    return ok.length ? ok : base;
+  }
+
+  async function autoPlan() {
+    const trip = selectedTrip;
+    if (!trip) return;
+    setPlannerErr(null);
+    if (!trip.start_date || !trip.end_date) {
+      setPlannerErr('Set the trip dates above first — the planner needs days to fill.');
+      return;
+    }
+    if (tripStops.length === 0) {
+      setPlannerErr('Add a destination stop first (e.g., "La Union"), then add places inside it.');
+      return;
+    }
+    if (trip.items.length === 0) {
+      setPlannerErr('Add at least one place first.');
+      return;
+    }
+    setPlanning(true);
+    try {
+      const allDays: string[] = [];
+      const d0 = new Date(trip.start_date + 'T00:00:00');
+      const d1 = new Date(trip.end_date + 'T00:00:00');
+      for (const d = new Date(d0); d <= d1; d.setDate(d.getDate() + 1)) allDays.push(d.toISOString().slice(0, 10));
+
+      const blocks = new Map<string, string[]>();
+      let cursor = 0;
+      for (const s of tripStops) {
+        const n = Math.max(1, s.days || 1);
+        blocks.set(s.label, allDays.slice(cursor, cursor + n));
+        cursor += n;
+      }
+
+      const typeRank: Record<string, number> = { Attraction: 0, Restaurant: 1, Hotel: 2 };
+      const assignments: { item: TripItem; date: string; time: string; seq: number }[] = [];
+
+      for (const s of tripStops) {
+        const days = blocks.get(s.label) ?? [];
+        if (!days.length) continue;
+        const items = trip.items
+          .filter((i) => matchesStop(i, s.label))
+          .sort((a, b) => {
+            const ta = typeRank[a.listing_type ?? ''] ?? 3;
+            const tb = typeRank[b.listing_type ?? ''] ?? 3;
+            if (ta !== tb) return ta - tb;
+            return (b.rating ?? -1) - (a.rating ?? -1);
+          });
+        let dayIdx = 0;
+        let used = 0;
+        for (const item of items) {
+          if (item.listing_type === 'Hotel') continue;
+          const allowed = pickSlotTimes(item.listing_type, item.listing_id);
+          if (used >= 3) {
+            dayIdx += 1;
+            used = 0;
+          }
+          if (dayIdx >= days.length) dayIdx = days.length - 1;
+          const time = allowed[Math.min(used, allowed.length - 1)];
+          assignments.push({ item, date: days[dayIdx], time, seq: used + 1 });
+          used += 1;
+        }
+      }
+
+      const assignedKeys = new Set(assignments.map((a) => a.item.key));
+      const leftovers = trip.items.filter((i) => !assignedKeys.has(i.key) && i.listing_type !== 'Hotel');
+      if (leftovers.length) {
+        const restDays = allDays.slice(cursor);
+        const days = restDays.length ? restDays : allDays;
+        let dayIdx = 0;
+        let used = 0;
+        for (const item of leftovers.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1))) {
+          const allowed = pickSlotTimes(item.listing_type, item.listing_id);
+          if (used >= 3) {
+            dayIdx += 1;
+            used = 0;
+          }
+          if (dayIdx >= days.length) dayIdx = days.length - 1;
+          assignments.push({ item, date: days[dayIdx], time: allowed[Math.min(used, allowed.length - 1)], seq: used + 1 });
+          used += 1;
+        }
+      }
+
+      for (const a of assignments) {
+        const { error } = await supabase
+          .from('trip_items')
+          .update({ planned_date: a.date, start_time: a.time, sequence_no: a.seq })
+          .eq('trip_item_id', a.item.key);
+        if (error) throw error;
+      }
+      await refreshTrips();
+    } catch (err: any) {
+      setPlannerErr(err?.message ?? 'Could not auto-plan this trip.');
+    }
+    setPlanning(false);
+  }
+
+  async function clearPlan() {
+    const trip = selectedTrip;
+    if (!trip) return;
+    const { error } = await supabase
+      .from('trip_items')
+      .update({ planned_date: null, start_time: null, sequence_no: null })
+      .eq('trip_id', trip.trip_id);
+    if (!error) await refreshTrips();
+    else setPlannerErr(error.message);
+  }
+
+  const selectedTrip = trips.find((t) => t.trip_id === selectedTripId) ?? trips[0] ?? null;
+  const inTripIds = new Set(selectedTrip?.items.map((i) => i.listing_id) ?? []);
+
+  function matchesStop(dest: { destination_name?: string | null; region_country?: string | null } | null, label: string) {
+    const l = label.trim().toLowerCase();
+    if (!l || !dest) return false;
+    return (
+      (dest.region_country ?? '').toLowerCase().includes(l) ||
+      (dest.destination_name ?? '').toLowerCase().includes(l)
+    );
+  }
+
+  const tripStops = (selectedTrip?.stops ?? []) as { label: string; days: number }[];
+
+  function stopItemCount(label: string) {
+    return (selectedTrip?.items ?? []).filter((i) => matchesStop(i, label)).length;
+  }
+
+  async function saveStops(next: { label: string; days: number }[]) {
+    const trip = selectedTrip;
+    if (!trip) return;
+    const { error } = await supabase.from('trips').update({ stops: next }).eq('trip_id', trip.trip_id);
+    if (error) setPlannerErr(error.message);
+    else await refreshTrips();
+  }
+
+  async function addStop(label: string) {
+    const clean = label.trim();
+    if (clean.length < 2) return;
+    if (tripStops.some((s) => s.label.toLowerCase() === clean.toLowerCase())) {
+      setPlannerErr('That stop is already in the trip.');
+      return;
+    }
+    setPlannerErr(null);
+    await saveStops([...tripStops, { label: clean, days: 1 }]);
+    setDestPickerOpen(false);
+    setDestSearch('');
+  }
+
+  async function removeStop(label: string) {
+    await saveStops(tripStops.filter((s) => s.label !== label));
+  }
+
+  async function setStopDays(label: string, days: number) {
+    await saveStops(tripStops.map((s) => (s.label === label ? { ...s, days: Math.max(1, days) } : s)));
+  }
+
+  const tripDays =
+    selectedTrip?.start_date && selectedTrip?.end_date
+      ? Math.max(
+          1,
+          Math.round(
+            (new Date(selectedTrip.end_date + 'T00:00:00').getTime() -
+              new Date(selectedTrip.start_date + 'T00:00:00').getTime()) /
+              86400000
+          ) + 1
+        )
+      : null;
+  const totalAllocated = tripStops.reduce((sum, s) => sum + (s.days || 1), 0);
+  const capacity = tripStops.length > 0 ? totalAllocated * 3 : tripDays ? tripDays * 3 : 6;
+
+  const plannedDates = selectedTrip
+    ? ([...new Set(selectedTrip.items.map((i) => i.planned_date).filter(Boolean))] as string[]).sort()
+    : [];
+  const unscheduledCount = selectedTrip ? selectedTrip.items.filter((i) => !i.planned_date).length : 0;
+
+  const previewCount =
+    destSearch.trim().length >= 2 ? explore.filter((l) => matchesStop(l.destination, destSearch)).length : 0;
+
+  const regionSuggestions = (() => {
+    const q = destSearch.trim().toLowerCase();
+    if (q.length < 2) return [] as string[];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const d of allDests) {
+      const region = (d.region_country ?? '').trim();
+      if (region && region.toLowerCase().includes(q) && !seen.has(region.toLowerCase())) {
+        seen.add(region.toLowerCase());
+        out.push(region);
+      }
+      if (out.length >= 4) break;
+    }
+    return out;
+  })();
+
+  const suggestions: ExploreCard[] = (() => {
+    const pool =
+      tripStops.length > 0 ? explore.filter((l) => tripStops.some((s) => matchesStop(l.destination, s.label))) : explore;
+    return pool.filter((l) => !inTripIds.has(l.listing_id)).sort(byRating).slice(0, 6);
+  })();
+
+  const plannerMatches =
+    plannerQuery.trim().length >= 2
+      ? explore
+          .filter(
+            (l) =>
+              !inTripIds.has(l.listing_id) &&
+              (tripStops.length === 0 || tripStops.some((s) => matchesStop(l.destination, s.label))) &&
+              `${l.name} ${l.destination?.destination_name ?? ''} ${l.destination?.region_country ?? ''}`
+                .toLowerCase()
+                .includes(plannerQuery.trim().toLowerCase())
+          )
+          .slice(0, 5)
+      : [];
+
+  const addList = plannerMatches.length > 0 ? plannerMatches : suggestions;
+
   function startHover(
     payload: { kind: 'listing'; id: string } | { kind: 'destination'; name: string },
     el: HTMLElement
@@ -312,31 +777,6 @@ export default function HomePage() {
       : { top: rect.bottom + 10, left, transform: 'translate(-50%, 0)' };
   }
 
-  async function fetchTrips(uid: string): Promise<TripData[]> {
-    const { data: t } = await supabase
-      .from('trips').select('*').eq('user_id', uid)
-      .order('start_date', { ascending: false });
-    const rows = (t ?? []) as any[];
-    if (!rows.length) return [];
-    const ids = rows.map((r) => r.trip_id);
-    const { data: items } = await supabase.from('trip_items').select('*').in('trip_id', ids);
-    const listingIds = [...new Set((items ?? []).map((i: any) => i.listing_id).filter(Boolean))];
-    const nameMap: Record<string, string> = {};
-    if (listingIds.length) {
-      const { data: ls } = await supabase.from('listings').select('listing_id, name').in('listing_id', listingIds);
-      (ls ?? []).forEach((l: any) => { nameMap[l.listing_id] = l.name; });
-    }
-    const map: Record<string, string[]> = {};
-    (items ?? []).forEach((i: any) => { (map[i.trip_id] ??= []).push(nameMap[i.listing_id] ?? i.listing_id); });
-    return rows.map((r) => ({
-      trip_id: r.trip_id,
-      trip_name: r.trip_name ?? r.name ?? null,
-      start_date: r.start_date ?? null,
-      end_date: r.end_date ?? null,
-      items: map[r.trip_id] ?? [],
-    }));
-  }
-
   const chip = (active: boolean) =>
     `px-3.5 py-1.5 rounded-full text-sm border transition ${
       active
@@ -344,14 +784,12 @@ export default function HomePage() {
         : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400 hover:text-slate-800'
     }`;
 
-  const hoverListing =
-    hover?.kind === 'listing' ? explore.find((l) => l.listing_id === hover.id) ?? null : null;
-  const hoverDest =
-    hover?.kind === 'destination' ? trending.find((t) => t.name === hover.name) ?? null : null;
+  const hoverListing = hover?.kind === 'listing' ? explore.find((l) => l.listing_id === hover.id) ?? null : null;
+  const hoverDest = hover?.kind === 'destination' ? trending.find((t) => t.name === hover.name) ?? null : null;
 
   const exploreList = explore
     .filter((l) => exploreType === 'All' || l.listing_type === exploreType)
-    .sort((a, b) => (b.average_rating ?? -1) - (a.average_rating ?? -1));
+    .sort(byRating);
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col">
@@ -409,80 +847,387 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Your trips — MOVED TO TOP as main feature */}
+      {/* TRIP PLANNER */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-base font-semibold text-slate-900">Your trips</h2>
-            <span className="text-xs text-slate-400">
-              {trips.length === 0
-                ? 'Start planning your next story'
-                : `${trips.length} trip${trips.length === 1 ? '' : 's'} · ${trips.filter((t) => isUpcoming(t)).length} upcoming`}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => (userId ? setShowTripModal(true) : router.push('/login'))}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm"
-          >
-            <PlusIcon className="w-4 h-4" />
-            New trip
-          </button>
-        </div>
+        <SectionHeader title="Trip planner"/>
 
-        {trips.length === 0 ? (
+        {!userId ? (
           <div className="bg-white border border-slate-200 rounded-2xl p-10 shadow-sm text-center">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
               <MapIcon className="w-7 h-7" />
             </div>
-            <h3 className="mt-4 text-lg font-semibold text-slate-900">No trips yet — your next story starts here</h3>
+            <h3 className="mt-4 text-lg font-semibold text-slate-900">Plan trips with a free account</h3>
             <p className="mt-1 text-sm text-slate-500 max-w-md mx-auto">
-              Create a trip, then save places you love from search results. Everything stays organized in one place.
+              Save places into dated itineraries and get suggestions tailored to each destination.
             </p>
-            <div className="mt-6 flex flex-col sm:flex-row justify-center gap-3">
-              {userId ? (
-                <button
-                  type="button"
-                  onClick={() => setShowTripModal(true)}
-                  className="px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm"
-                >
-                  Create your first trip
-                </button>
-              ) : (
-                <Link
-                  href="/signup"
-                  className="px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition shadow-sm"
-                >
-                  Create a free account
-                </Link>
-              )}
-              <Link
-                href="/search"
-                className="px-6 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 transition"
-              >
-                Browse places
+            <div className="mt-6 flex justify-center gap-3">
+              <Link href="/signup" className="px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition shadow-sm">
+                Create a free account
+              </Link>
+              <Link href="/login" className="px-6 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 transition">
+                Sign in
               </Link>
             </div>
           </div>
+        ) : trips.length === 0 ? (
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-8 md:p-10 text-white shadow-md">
+            <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10" />
+            <div className="absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-white/5" />
+            <div className="relative">
+              <h3 className="text-2xl md:text-3xl font-semibold tracking-tight">Where to next?</h3>
+              <p className="mt-2 text-blue-100 max-w-lg text-sm md:text-base">
+                Create a trip, pick your dates, and we'll suggest the best-rated places to fill your itinerary.
+              </p>
+              <form onSubmit={handleStartCreate} className="mt-6 grid grid-cols-1 md:grid-cols-[1fr_170px_170px_auto] gap-3">
+                <input
+                  value={startName}
+                  onChange={(e) => setStartName(e.target.value)}
+                  maxLength={100}
+                  placeholder="Trip name — e.g., Japan Spring Adventure"
+                  className="px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-blue-200 focus:ring-2 focus:ring-white/60 outline-none transition"
+                />
+                <input
+                  type="date"
+                  value={startDate}
+                  max={endDate || undefined}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white focus:ring-2 focus:ring-white/60 outline-none transition [color-scheme:dark]"
+                />
+                <input
+                  type="date"
+                  value={endDate}
+                  min={startDate || undefined}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white focus:ring-2 focus:ring-white/60 outline-none transition [color-scheme:dark]"
+                />
+                <button
+                  type="submit"
+                  disabled={startBusy}
+                  className="px-6 py-3 rounded-xl bg-white text-blue-700 text-sm font-semibold hover:bg-blue-50 active:bg-blue-100 transition shadow-sm disabled:opacity-60"
+                >
+                  {startBusy ? 'Creating…' : 'Start planning'}
+                </button>
+              </form>
+              {plannerErr && <p className="mt-3 text-sm text-red-200">{plannerErr}</p>}
+            </div>
+          </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {trips.map((t) => (
-              <TripCardView key={t.trip_id} t={t} />
-            ))}
-            <button
-              type="button"
-              onClick={() => setShowTripModal(true)}
-              className="rounded-2xl border-2 border-dashed border-slate-300 bg-white/50 hover:border-blue-400 hover:bg-blue-50/40 transition flex flex-col items-center justify-center gap-2 p-8 text-slate-400 hover:text-blue-600 min-h-[10rem]"
-            >
-              <PlusIcon className="w-6 h-6" />
-              <span className="text-sm font-medium">Plan a new trip</span>
-            </button>
+          <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-6">
+            <div className="space-y-3">
+              {trips.map((t) => {
+                const sel = selectedTrip?.trip_id === t.trip_id;
+                return (
+                  <button
+                    key={t.trip_id}
+                    type="button"
+                    onClick={() => setSelectedTripId(t.trip_id)}
+                    className={`w-full text-left rounded-2xl border p-4 transition ${
+                      sel
+                        ? 'border-blue-600 bg-blue-50/60 ring-1 ring-blue-600 shadow-sm'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-slate-900 truncate">{t.trip_name ?? `Trip ${t.trip_id}`}</p>
+                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold ${isUpcoming(t) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                        {isUpcoming(t) ? 'Upcoming' : 'Done'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">{fmtDate(t.start_date)} → {fmtDate(t.end_date)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{t.items.length} place{t.items.length === 1 ? '' : 's'}</p>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setShowTripModal(true)}
+                className="w-full rounded-2xl border-2 border-dashed border-slate-300 bg-white/50 hover:border-blue-400 hover:bg-blue-50/40 transition flex items-center justify-center gap-2 p-4 text-slate-400 hover:text-blue-600 text-sm font-medium"
+              >
+                <PlusIcon className="w-4 h-4" />
+                New trip
+              </button>
+            </div>
+
+            {selectedTrip && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                <div>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <h3 className="text-lg font-semibold text-slate-900">{selectedTrip.trip_name ?? `Trip ${selectedTrip.trip_id}`}</h3>
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${isUpcoming(selectedTrip) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                      {isUpcoming(selectedTrip) ? 'Upcoming' : 'Completed'}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <input
+                      type="date"
+                      value={selectedTrip.start_date ?? ''}
+                      max={selectedTrip.end_date || undefined}
+                      onChange={(e) => updateTripDates(e.target.value, selectedTrip.end_date ?? '')}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-600 focus:ring-2 focus:ring-blue-600 outline-none transition"
+                    />
+                    <span className="text-xs text-slate-400">→</span>
+                    <input
+                      type="date"
+                      value={selectedTrip.end_date ?? ''}
+                      min={selectedTrip.start_date || undefined}
+                      onChange={(e) => updateTripDates(selectedTrip.start_date ?? '', e.target.value)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-600 focus:ring-2 focus:ring-blue-600 outline-none transition"
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="h-1.5 w-32 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-600 rounded-full"
+                        style={{ width: `${Math.min(100, (selectedTrip.items.length / capacity) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-slate-400">
+                      {selectedTrip.items.length}/{capacity} place slots{tripDays ? ` · ${tripDays}-day trip` : ' · set dates for more'}
+                    </span>
+                  </div>
+                </div>
+
+                {plannerErr && <p className="mt-3 bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-2.5 text-sm">{plannerErr}</p>}
+
+                <div className="mt-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Destination stops</h4>
+                    <button
+                      type="button"
+                      onClick={() => setDestPickerOpen(true)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition"
+                    >
+                      <PlusIcon className="w-3 h-3" />
+                      Add stop
+                    </button>
+                  </div>
+                  {tripStops.length === 0 ? (
+                    <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
+                      No stops yet | add a province, city, or country (e.g., "La Union") to scope place suggestions.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        {tripStops.map((s) => (
+                          <div key={s.label} className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-slate-900 text-sm truncate">{s.label}</p>
+                              <p className="text-[11px] text-slate-400 truncate">
+                                {stopItemCount(s.label)} of your places fall inside this stop
+                              </p>
+                            </div>
+                            <label className="text-xs text-slate-500 shrink-0">Days</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={tripDays ?? 60}
+                              value={s.days}
+                              onChange={(e) => setStopDays(s.label, parseInt(e.target.value) || 1)}
+                              className="w-16 px-2 py-1 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none transition"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeStop(s.label)}
+                              aria-label={`Remove ${s.label}`}
+                              className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition flex items-center justify-center"
+                            >
+                              <CloseIcon className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      {tripDays != null && totalAllocated !== tripDays && (
+                        <p className="mt-2 text-xs text-amber-600">
+                          Allocated days ({totalAllocated}) don't match trip length ({tripDays}) — the planner follows your allocation.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Itinerary</h4>
+                    {selectedTrip.items.length === 0 ? (
+                      <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
+                        No places yet | add some from the right.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {selectedTrip.items.map((it, idx) => (
+                          <div key={it.key} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 bg-white">
+                            <span className="w-6 h-6 shrink-0 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center">
+                              {idx + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <Link href={`/listing/${it.listing_id}`} className="block font-medium text-slate-800 text-sm truncate hover:text-blue-700 transition">
+                                {it.name}
+                              </Link>
+                              {it.destination_name && <p className="text-[11px] text-slate-400 truncate">{it.destination_name}</p>}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeItem(it)}
+                              aria-label={`Remove ${it.name}`}
+                              className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition flex items-center justify-center"
+                            >
+                              <CloseIcon className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                      {plannerMatches.length > 0 ? 'Search results' : 'Suggested for this trip'}
+                    </h4>
+                    <input
+                      value={plannerQuery}
+                      onChange={(e) => setPlannerQuery(e.target.value)}
+                      placeholder="Add any place | type to search…"
+                      className="w-full px-4 py-2.5 mb-3 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                    />
+                    <div className="space-y-2">
+                      {addList.length === 0 && (
+                        <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
+                          Nothing matches — try another keyword.
+                        </p>
+                      )}
+                      {addList.map((l) => (
+                        <div key={l.listing_id} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5">
+                          {l.image_url ? (
+                            <img src={l.image_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-slate-100 shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-slate-800 text-sm truncate">{l.name}</p>
+                            <p className="text-[11px] text-slate-400 truncate">
+                              {l.destination?.destination_name}
+                              {l.average_rating != null ? ` · ★ ${Number(l.average_rating).toFixed(1)}` : ''}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => addItem(l.listing_id)}
+                            disabled={addingId === l.listing_id}
+                            className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition disabled:opacity-60"
+                          >
+                            <PlusIcon className="w-3 h-3" />
+                            Add
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedTrip.items.length > 0 && (
+                  <div className="mt-8 border-t border-slate-100 pt-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
+                      <div>
+                        <h4 className="text-base font-semibold text-slate-900">Day-by-day roadmap</h4>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {plannedDates.length > 0
+                            ? `Planned by TravelMate — morning, afternoon & evening slots${
+                                unscheduledCount > 0
+                                  ? ` · ${unscheduledCount} new place${unscheduledCount === 1 ? '' : 's'} waiting to be planned`
+                                  : ''
+                              }`
+                            : 'Not scheduled yet — press "Plan automatically" to build your days'}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={autoPlan}
+                          disabled={planning}
+                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 active:bg-slate-700 transition shadow-sm disabled:opacity-60"
+                        >
+                          <SparkleIcon className="w-4 h-4" />
+                          {planning ? 'Planning…' : 'Plan automatically'}
+                        </button>
+                        {plannedDates.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={clearPlan}
+                            className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-600 hover:border-slate-400 transition"
+                          >
+                            Clear schedule
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {plannedDates.length > 0 ? (
+                      <>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+                          <SummaryTile label="Days" value={String(plannedDates.length)} />
+                          <SummaryTile label="Places" value={String(selectedTrip.items.length)} />
+                          <SummaryTile
+                            label="Destinations"
+                            value={String(new Set(selectedTrip.items.map((i) => i.destination_name).filter(Boolean)).size)}
+                          />
+                          <SummaryTile label="Pace" value={`${(selectedTrip.items.length / plannedDates.length).toFixed(1)}/day`} />
+                        </div>
+
+                        <div className="relative pl-7">
+                          <div className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-slate-200 rounded-full" />
+                          {plannedDates.map((date, di) => (
+                            <div key={date} className="relative mb-8 last:mb-0">
+                              <span className="absolute -left-7 top-1 w-4 h-4 rounded-full border-[3px] border-blue-600 bg-white shadow-sm" />
+                              <div className="flex items-baseline gap-3 mb-3">
+                                <p className="text-sm font-semibold text-slate-900">Day {di + 1}</p>
+                                <p className="text-xs text-slate-400">{fmtDate(date)}</p>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {stopsFor(date).map((it) => (
+                                  <Link
+                                    key={it.key}
+                                    href={`/listing/${it.listing_id}`}
+                                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200 transition block"
+                                  >
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-semibold uppercase tracking-wider">
+                                        {slotLabel(it)}
+                                      </span>
+                                      <span className="text-[11px] text-slate-400">{fmtTime(it.start_time)}</span>
+                                    </div>
+                                    <p className="font-medium text-slate-900 text-sm truncate">{it.name}</p>
+                                    <p className="text-xs text-slate-400 mt-1 truncate">
+                                      {it.listing_type ?? 'Place'}
+                                      {it.destination_name ? ` · ${it.destination_name}` : ''}
+                                    </p>
+                                    {it.rating != null && (
+                                      <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-amber-600">
+                                        <Star className="w-3 h-3" />
+                                        {Number(it.rating).toFixed(1)}
+                                      </p>
+                                    )}
+                                  </Link>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
+                        Add places, then press <span className="font-semibold text-slate-700">Plan automatically</span> — TravelMate
+                        assigns mornings, afternoons and evenings across your dates, keeping same-area places together.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </section>
 
-      {/* Explore rail — full width */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 w-full">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
           <div className="flex items-baseline gap-3">
             <h2 className="text-base font-semibold text-slate-900">Explore places</h2>
@@ -504,33 +1249,41 @@ export default function HomePage() {
                 href={`/listing/${l.listing_id}`}
                 onMouseEnter={(e) => startHover({ kind: 'listing', id: l.listing_id }, e.currentTarget)}
                 onMouseLeave={cancelHover}
-                className="w-64 shrink-0 snap-start bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition group"
+                className="w-72 shrink-0 snap-start group rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm hover:shadow-lg hover:-translate-y-1 transition"
               >
-                <div className="relative h-40">
+                <div className="relative h-44 overflow-hidden">
                   {l.image_url ? (
-                    <img src={l.image_url} alt="" className="w-full h-40 object-cover" />
+                    <img src={l.image_url} alt="" className="w-full h-44 object-cover transition duration-500 group-hover:scale-105" />
                   ) : (
-                    <div className="w-full h-40 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+                    <div className="w-full h-44 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
                       <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{l.listing_type}</span>
                     </div>
                   )}
-                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/90 text-slate-700">
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900/70 via-slate-900/10 to-transparent" />
+                  <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white/90 text-slate-700">
                     {l.listing_type}
                   </span>
-                </div>
-                <div className="p-4">
-                  <p className="font-semibold text-slate-900 truncate group-hover:text-blue-700 transition">{l.name}</p>
-                  <p className="text-xs text-slate-400 truncate mt-0.5">{l.destination?.region_country ?? '—'}</p>
-                  <div className="mt-2">
-                    {l.average_rating != null ? (
-                      <span className="flex items-center gap-1 text-sm font-semibold text-amber-600">
-                        <Star className="w-4 h-4" />
-                        {Number(l.average_rating).toFixed(1)}
-                      </span>
-                    ) : (
-                      <span className="text-xs font-medium text-slate-400">New · not rated yet</span>
-                    )}
+                  {l.average_rating != null && (
+                    <span className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/40 backdrop-blur text-white text-[11px] font-semibold">
+                      <Star className="w-3 h-3 text-amber-400" />
+                      {Number(l.average_rating).toFixed(1)}
+                    </span>
+                  )}
+                  <div className="absolute bottom-0 left-0 right-0 p-3">
+                    <p className="font-semibold text-white truncate">{l.name}</p>
+                    <p className="text-xs text-slate-200 truncate">
+                      {l.destination?.destination_name}, {l.destination?.region_country}
+                    </p>
                   </div>
+                </div>
+                <div className="p-4 flex items-center justify-between gap-2">
+                  <span className="text-xs text-slate-500 truncate">
+                    {subtypeMap[l.listing_id] ? subtypeMap[l.listing_id].value : (l.description ?? '').slice(0, 40) || 'Discover this place'}
+                  </span>
+                  <span className="flex items-center gap-1 text-xs font-medium text-blue-600 whitespace-nowrap group-hover:translate-x-0.5 transition">
+                    View
+                    <Chevron className="w-3.5 h-3.5" />
+                  </span>
                 </div>
               </Link>
             ))}
@@ -540,8 +1293,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Recommendations — 2x2 card grid */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 w-full">
         <SectionHeader
           title={hasPersonal ? 'Top picks for you' : 'Community favorites'}
           helper={hasPersonal ? 'From your recommendation profile' : 'Most-recommended places across TravelMate'}
@@ -601,8 +1353,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Forecast + Quick actions — balanced two-up */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
           <SectionHeader
             title="5-day forecast"
@@ -626,14 +1377,6 @@ export default function HomePage() {
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
           <h2 className="text-base font-semibold text-slate-900 mb-4">Quick actions</h2>
           <div className="space-y-2 flex-1 flex flex-col justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => (userId ? setShowTripModal(true) : router.push('/login'))}
-              className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
-            >
-              Plan a trip
-              <Chevron className="w-4 h-4 text-slate-300" />
-            </button>
             <Link
               href="/search"
               className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
@@ -655,18 +1398,26 @@ export default function HomePage() {
               List your place
               <Chevron className="w-4 h-4 text-slate-300" />
             </Link>
+            <Link
+              href="/profile"
+              className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
+            >
+              Your profile & preferences
+              <Chevron className="w-4 h-4 text-slate-300" />
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Trending — full width */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-14 w-full">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-14 w-full">
         <SectionHeader title="Trending destinations" helper="Highest-rated across our listings" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {trending.map((t, i) => (
             <Link
               key={t.name}
               href={`/search?q=${encodeURIComponent(t.name)}`}
+              onMouseEnter={(e) => startHover({ kind: 'destination', name: t.name }, e.currentTarget)}
+              onMouseLeave={cancelHover}
               className="group relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200 transition flex flex-col"
             >
               <div className="flex items-center justify-between">
@@ -770,13 +1521,65 @@ export default function HomePage() {
         </div>
       )}
 
+      {destPickerOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setDestPickerOpen(false)}>
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900">Add destination stop</h3>
+              <button type="button" onClick={() => setDestPickerOpen(false)} className="text-slate-400 hover:text-slate-600 transition">
+                <CloseIcon className="w-5 h-5" />
+              </button>
+            </div>
+            <input
+              value={destSearch}
+              onChange={(e) => setDestSearch(e.target.value)}
+              placeholder="Search province, city, or country…"
+              autoFocus
+              className="w-full px-4 py-3 mb-4 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+            />
+            <p className="text-sm text-slate-500 mb-3">
+              {destSearch.trim().length >= 2 ? (
+                <>
+                  <span className="font-semibold text-slate-900">{previewCount}</span> place{previewCount === 1 ? '' : 's'} in the catalog fall inside "{destSearch.trim()}"
+                </>
+              ) : (
+                'Type a province, city, or country — e.g., "La Union", "Kyoto", "Japan".'
+              )}
+            </p>
+            {regionSuggestions.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {regionSuggestions.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setDestSearch(r)}
+                    className="px-3 py-1 rounded-full text-xs border border-slate-200 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-800 transition"
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={destSearch.trim().length < 2}
+              onClick={() => addStop(destSearch)}
+              className="w-full py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60"
+            >
+              Add stop "{destSearch.trim() || '…'}"
+            </button>
+          </div>
+        </div>
+      )}
+
       {showTripModal && userId && (
         <NewTripModal
           userId={userId}
           onClose={() => setShowTripModal(false)}
-          onCreated={async () => {
+          onCreated={async (id) => {
             setShowTripModal(false);
-            if (userId) setTrips(await fetchTrips(userId));
+            await refreshTrips();
+            setSelectedTripId(id);
           }}
         />
       )}
@@ -786,66 +1589,7 @@ export default function HomePage() {
   );
 }
 
-function isUpcoming(t: { end_date: string | null }) {
-  const today = new Date().toISOString().slice(0, 10);
-  return t.end_date ? t.end_date >= today : true;
-}
-
-function fmtDate(d: string | null) {
-  return d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-}
-
-function PlusIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-4 h-4'}>
-      <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function MapIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-4 h-4'}>
-      <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" strokeLinejoin="round" />
-      <path d="M9 4v14M15 6v14" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function TripCardView({ t }: { t: TripData }) {
-  const up = isUpcoming(t);
-  return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition flex flex-col">
-      <div className="flex items-start justify-between gap-3">
-        <p className="font-semibold text-slate-900 truncate">{t.trip_name ?? `Trip ${t.trip_id}`}</p>
-        <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${up ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-          {up ? 'Upcoming' : 'Completed'}
-        </span>
-      </div>
-      <p className="mt-1 text-xs text-slate-400">{fmtDate(t.start_date)} → {fmtDate(t.end_date)}</p>
-      <div className="mt-3 flex-1">
-        {t.items.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {t.items.slice(0, 3).map((name, i) => (
-              <span key={i} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs truncate max-w-[10rem]">{name}</span>
-            ))}
-            {t.items.length > 3 && (
-              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">+{t.items.length - 3} more</span>
-            )}
-          </div>
-        ) : (
-          <p className="text-xs text-slate-400">No places saved yet — add some from search.</p>
-        )}
-      </div>
-      <div className="mt-4 flex items-center justify-between">
-        <span className="text-xs text-slate-400">{t.items.length} place{t.items.length === 1 ? '' : 's'}</span>
-        <Link href="/search" className="text-xs font-medium text-blue-600 hover:text-blue-700">Add places</Link>
-      </div>
-    </div>
-  );
-}
-
-function NewTripModal({ userId, onClose, onCreated }: { userId: string; onClose: () => void; onCreated: () => void }) {
+function NewTripModal({ userId, onClose, onCreated }: { userId: string; onClose: () => void; onCreated: (id: string) => void }) {
   const supabase = createClient();
   const [name, setName] = useState('');
   const [start, setStart] = useState('');
@@ -869,7 +1613,7 @@ function NewTripModal({ userId, onClose, onCreated }: { userId: string; onClose:
         end_date: end || null,
       });
       if (error) throw error;
-      onCreated();
+      onCreated(tripId as string);
     } catch (e: any) {
       setErr(e?.message ?? 'Could not create the trip.');
       setBusy(false);
@@ -882,9 +1626,7 @@ function NewTripModal({ userId, onClose, onCreated }: { userId: string; onClose:
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-slate-900">Plan a new trip</h3>
           <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-600 transition">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-              <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
-            </svg>
+            <CloseIcon className="w-5 h-5" />
           </button>
         </div>
         {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>}
@@ -905,16 +1647,15 @@ function NewTripModal({ userId, onClose, onCreated }: { userId: string; onClose:
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Start date</label>
-              <input type="date" value={start} onChange={(e) => setStart(e.target.value)}
+              <input type="date" value={start} max={end || undefined} onChange={(e) => setStart(e.target.value)}
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">End date</label>
-              <input type="date" value={end} onChange={(e) => setEnd(e.target.value)}
+              <input type="date" value={end} min={start || undefined} onChange={(e) => setEnd(e.target.value)}
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
             </div>
           </div>
-          <p className="text-xs text-slate-400">Dates are optional — trips appear here and on your profile.</p>
         </div>
         <div className="flex gap-3 mt-6">
           <button type="button" onClick={onClose}
@@ -927,6 +1668,24 @@ function NewTripModal({ userId, onClose, onCreated }: { userId: string; onClose:
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SparkleIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className ?? 'w-4 h-4'}>
+      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+      <circle cx="19" cy="18" r="2" opacity=".6" />
+    </svg>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>
+      <p className="text-lg font-semibold text-slate-900">{value}</p>
     </div>
   );
 }
