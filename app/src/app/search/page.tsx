@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/utils/supabase/client';
 import { logSearch } from '@/utils/supabase/searchlog';
-
+import SearchDropdown from '@/components/SearchDropdown';
 type ListingRow = {
   listing_id: string;
   name: string;
@@ -122,17 +122,12 @@ export default function SearchPage() {
           }}
           className="mb-8 flex flex-col md:flex-row gap-3"
         >
-          <div className="relative flex-1">
-            <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              maxLength={100}
-              placeholder='Where to? Try "Kyoto" or "Palawan"'
-              className="w-full pl-12 pr-5 py-3.5 rounded-xl border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition shadow-sm"
-            />
-          </div>
+           <SearchDropdown
+            query={query}
+            onQueryChange={setQuery}
+            onSubmit={(q) => { setQuery(q); runSearch(q); }}
+            userId={userId}
+          />
           <button
             type="submit"
             disabled={loading}

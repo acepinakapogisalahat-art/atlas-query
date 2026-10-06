@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 
@@ -17,11 +18,133 @@ type Review = {
   user_name?: string;
 };
 
+type Trip = {
+  trip_id: string;
+  trip_name: string;
+  start_date: string | null;
+  end_date: string | null;
+};
+
 function Star({ className, filled }: { className?: string; filled?: boolean }) {
   return (
     <svg viewBox="0 0 20 20" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" className={className ?? 'w-4 h-4'}>
       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.958a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.367 2.446a1 1 0 00-.363 1.118l1.286 3.958c.3.922-.755 1.688-1.539 1.118l-3.367-2.446a1 1 0 00-1.175 0l-3.367 2.446c-.783.57-1.838-.196-1.539-1.118l1.286-3.958a1 1 0 00-.363-1.118L2.063 9.385c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.958z" />
     </svg>
+  );
+}
+
+function ChevronLeft({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className={className ?? 'w-4 h-4'}>
+      <path
+        fillRule="evenodd"
+        d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.24a.75.75 0 010-1.08l4.5-4.24a.75.75 0 011.06.02z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function Pin({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-4 h-4'}>
+      <path d="M12 21s-7-5.1-7-11a7 7 0 1114 0c0 5.9-7 11-7 11z" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="10" r="2.5" />
+    </svg>
+  );
+}
+
+function ThumbUp({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-3.5 h-3.5'}>
+      <path d="M7 10v11" strokeLinecap="round" />
+      <path d="M7 10l4.2-6.6c.4-.6 1.3-.6 1.7 0 .2.3.3.7.2 1.1L12.6 8H18a2 2 0 012 2.4l-1.3 6.5A2 2 0 0116.7 19H7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Plus({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-4 h-4'}>
+      <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Calendar({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-4 h-4'}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M8 3v4M16 3v4M3 10h18" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Camera({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-4 h-4'}>
+      <path d="M4 8h3l2-3h6l2 3h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="13.5" r="3.5" />
+    </svg>
+  );
+}
+
+function Close({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-5 h-5'}>
+      <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Check({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-5 h-5'}>
+      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SectionHeader({ title, helper }: { title: string; helper?: string }) {
+  return (
+    <div className="flex items-baseline justify-between mb-4">
+      <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+      {helper && <span className="text-xs text-slate-400">{helper}</span>}
+    </div>
+  );
+}
+
+function SafeImg({ src, alt, type }: { src: string | null; alt: string; type: string }) {
+  const [failed, setFailed] = useState(false);
+  const usable = !!src && !failed;
+  return usable ? (
+    <img src={src!} alt={alt} onError={() => setFailed(true)} className="w-full h-full object-cover" />
+  ) : (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-100 to-slate-200">
+      <Camera className="w-6 h-6 text-slate-400" />
+      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{type}</span>
+    </div>
+  );
+}
+
+function StatTile({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-center">
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">{label}</p>
+      <p className="text-lg font-semibold text-slate-900 flex items-center justify-center gap-1.5">
+        {icon}
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function DetailTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-slate-50 rounded-xl p-4">
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>
+      <p className="text-sm text-slate-800 font-medium">{value}</p>
+    </div>
   );
 }
 
@@ -38,6 +161,11 @@ export default function ListingDetailPage() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [activePhoto, setActivePhoto] = useState(0);
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const [showAddToTrip, setShowAddToTrip] = useState(false);
+  const [showBooking, setShowBooking] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -80,184 +208,691 @@ export default function ListingDetailPage() {
       }
       setReviews(revs.map((r) => ({ ...r, user_name: nameMap[r.user_id] })));
 
+      // Get user ID for trip/booking actions
+      const { data: session } = await supabase.auth.getSession();
+      const authId = session.session?.user?.id;
+      if (authId) {
+        const { data: profile } = await supabase
+          .from('app_users').select('user_id').eq('auth_user_id', authId).maybeSingle();
+        setUserId(profile?.user_id ?? null);
+      }
+
       setLoading(false);
     }
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listingId, refreshKey]);
 
-  if (loading) return <div className="p-8 text-center">Loading listing...</div>;
-  if (!listing) {
+  if (loading) {
     return (
-      <div className="p-8 text-center">
-        Listing not found.{' '}
-        <button onClick={() => router.back()} className="text-blue-600 underline">Go back</button>
-      </div>
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-sm text-slate-400">Loading listing…</p>
+      </main>
     );
   }
 
-  const displayPhotos = photos.length > 0
+  if (!listing) {
+    return (
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+        <div className="text-center max-w-md">
+          <p className="text-5xl font-semibold tracking-tight text-slate-900">404</p>
+          <h1 className="mt-3 text-xl font-semibold text-slate-900">Listing not found</h1>
+          <p className="mt-2 text-sm text-slate-500">This place may have been removed or the link is incorrect.</p>
+          <div className="mt-6 flex justify-center gap-3">
+            <Link href="/search" className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition">
+              Search places
+            </Link>
+            <button onClick={() => router.back()} className="px-5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition">
+              Go back
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const gallery = photos.length > 0
     ? photos
-    : [{ photo_id: 'main', photo_url: listing.image_url, caption: 'Main image' }];
+    : listing.image_url
+      ? [{ photo_id: 'main', photo_url: listing.image_url, caption: 'Main image' }]
+      : [];
+  const safeIndex = Math.min(activePhoto, Math.max(gallery.length - 1, 0));
+  const hero = gallery[safeIndex];
+  const avg = listing.average_rating != null ? Number(listing.average_rating) : null;
 
   return (
     <main className="min-h-screen bg-slate-50 pb-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <button onClick={() => router.back()} className="text-sm text-blue-600 hover:text-blue-700 mb-6 flex items-center gap-1">
-          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-            <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.24a.75.75 0 010-1.08l4.5-4.24a.75.75 0 011.06.02z" clipRule="evenodd" />
-          </svg>
+        <button
+          onClick={() => router.back()}
+          className="flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-900 transition mb-8"
+        >
+          <ChevronLeft className="w-4 h-4" />
           Back to results
         </button>
 
-        <div className="flex flex-col md:flex-row justify-between items-start mb-8 gap-4">
-          <div>
-            <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-blue-50 text-blue-700 mb-3">
-              {listing.listing_type}
+        {/* Centered hero header */}
+        <div className="text-center max-w-3xl mx-auto">
+          <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-blue-50 text-blue-700 mb-4">
+            {listing.listing_type}
+          </span>
+          <h1 className="text-3xl md:text-5xl font-semibold tracking-tight text-slate-900">{listing.name}</h1>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm text-slate-500">
+            <span className="flex items-center gap-1 font-semibold text-amber-600">
+              <Star className="w-4 h-4" filled />
+              {avg != null ? avg.toFixed(1) : 'New'}
             </span>
-            <h1 className="text-4xl font-semibold tracking-tight text-slate-900">{listing.name}</h1>
-            <p className="text-slate-500 mt-2">
-              {listing.address}
-              {destination ? ` · ${destination.destination_name}, ${destination.region_country}` : ''}
-            </p>
-            {subtypeDetails?.coordinates && (
-              <p className="text-xs text-slate-400 mt-1 font-mono">{subtypeDetails.coordinates}</p>
+            <span className="text-slate-300">·</span>
+            <span>{reviews.length} review{reviews.length === 1 ? '' : 's'}</span>
+            {destination && (
+              <>
+                <span className="text-slate-300">·</span>
+                <span className="flex items-center gap-1">
+                  <Pin className="w-4 h-4 text-slate-400" />
+                  {destination.destination_name}, {destination.region_country}
+                </span>
+              </>
             )}
           </div>
-          <div className="flex gap-3">
-            <button className="px-6 py-3 border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 transition">
-              + Add to trip
+          {listing.address && <p className="mt-2 text-sm text-slate-500">{listing.address}</p>}
+          {subtypeDetails?.coordinates && (
+            <span className="inline-block mt-3 px-2.5 py-1 rounded-md bg-slate-100 text-xs font-mono text-slate-500">
+              {subtypeDetails.coordinates}
+            </span>
+          )}
+
+          <div className="flex justify-center gap-3 mt-7">
+            <button
+              onClick={() => {
+                if (!userId) {
+                  router.push('/login');
+                } else {
+                  setShowAddToTrip(true);
+                }
+              }}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50/40 transition shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              Add to trip
             </button>
-            <button className="px-6 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition shadow-sm">
+            <button
+              onClick={() => {
+                if (!userId) {
+                  router.push('/login');
+                } else {
+                  setShowBooking(true);
+                }
+              }}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm"
+            >
+              <Calendar className="w-4 h-4" />
               Book now
             </button>
           </div>
         </div>
 
-        <div className="mb-10">
-          {displayPhotos.slice(0, 1).map((photo) => (
-            <div
-              key={photo.photo_id ?? 'main'}
-              className="h-72 md:h-96 rounded-2xl overflow-hidden relative bg-slate-200 shadow-sm"
-            >
-              <SafeImg src={photo.photo_url} alt={photo.caption ?? listing.name} type={listing.listing_type} />
-              {photo.caption && (
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent text-white text-xs p-4">
-                  {photo.caption}
+        {/* Gallery: constrained hero + centered filmstrip + lightbox (FIXED SPACING: mt-20 md:mt-24) */}
+        <div className="mt-20 md:mt-24 mb-12 md:mb-14">
+          {gallery.length === 0 ? (
+            <div className="max-w-5xl mx-auto h-80 md:h-96 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex flex-col items-center justify-center gap-3">
+              <Camera className="w-8 h-8 text-slate-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">No photos yet</span>
+            </div>
+          ) : (
+            <div className="max-w-5xl mx-auto">
+              <button
+                onClick={() => setLightbox(safeIndex)}
+                className="relative block w-full aspect-[16/9] rounded-2xl overflow-hidden bg-slate-200 shadow-sm group"
+                aria-label="Open photo viewer"
+              >
+                <SafeImg src={hero?.photo_url ?? null} alt={hero?.caption ?? listing.name} type={listing.listing_type} />
+                {hero?.caption && (
+                  <span className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent text-white text-xs p-4 text-left">
+                    {hero.caption}
+                  </span>
+                )}
+                <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/50 text-white text-[11px] font-medium backdrop-blur">
+                  {safeIndex + 1} / {gallery.length}
+                </span>
+                <span className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/50 text-white text-xs font-medium backdrop-blur group-hover:bg-black/70 transition">
+                  <Camera className="w-3.5 h-3.5" />
+                  View full screen
+                </span>
+              </button>
+
+              {gallery.length > 1 && (
+                <div className="flex justify-center gap-4 mt-4">
+                  {gallery.map((p, i) => (
+                    <button
+                      key={p.photo_id ?? i}
+                      onClick={() => setActivePhoto(i)}
+                      aria-label={`Show photo ${i + 1}`}
+                      className={`w-28 md:w-40 aspect-[4/3] rounded-xl overflow-hidden border-2 transition ${
+                        i === safeIndex ? 'border-blue-600 shadow-sm' : 'border-transparent opacity-75 hover:opacity-100'
+                      }`}
+                    >
+                      <SafeImg src={p.photo_url} alt={`Photo ${i + 1}`} type={listing.listing_type} />
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
-          ))}
+          )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-          <div className="lg:col-span-2 space-y-8">
-            <section>
-              <h2 className="text-xl font-semibold text-slate-900 mb-3">About this place</h2>
-              <p className="text-slate-600 leading-relaxed">{listing.description}</p>
-            </section>
+        {/* Symmetric stat strip */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+          <StatTile
+            label="Rating"
+            value={avg != null ? avg.toFixed(1) : '—'}
+            icon={avg != null ? <Star className="w-5 h-5 text-amber-500" filled /> : undefined}
+          />
+          <StatTile label="Reviews" value={String(reviews.length)} />
+          <StatTile label="Type" value={listing.listing_type} />
+          <StatTile label="Added" value={listing.date_added ? new Date(listing.date_added).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : '—'} />
+        </div>
 
-            <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Listing Details</h2>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                {listing.listing_type === 'Attraction' && subtypeDetails && (
-                  <>
-                    <DetailRow label="Activity" value={subtypeDetails.activity_name || 'N/A'} />
-                    <DetailRow label="Schedule" value={subtypeDetails.schedule_id || 'N/A'} />
-                    <DetailRow label="Coordinates" value={subtypeDetails.coordinates || 'N/A'} />
-                  </>
-                )}
-                {listing.listing_type === 'Hotel' && subtypeDetails && (
-                  <>
-                    <DetailRow label="Star Rating" value={subtypeDetails.star_rating || 'N/A'} />
-                    <DetailRow label="Address" value={subtypeDetails.address || listing.address} />
-                  </>
-                )}
-                {listing.listing_type === 'Restaurant' && subtypeDetails && (
-                  <>
-                    <DetailRow label="Cuisine" value={subtypeDetails.cuisine_type || 'N/A'} />
-                    <DetailRow label="Address" value={subtypeDetails.address || listing.address} />
-                  </>
-                )}
-                <DetailRow
-                  label="Average Rating"
-                  value={listing.average_rating != null ? `${Number(listing.average_rating).toFixed(1)} / 5` : 'Not rated yet'}
-                />
-                <DetailRow
-                  label="Date Added"
-                  value={listing.date_added ? new Date(listing.date_added).toLocaleDateString() : 'N/A'}
-                />
+        {/* About | Details — equal columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10 items-start">
+          <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-full">
+            <SectionHeader title="About this place" />
+            <p className="text-slate-600 leading-relaxed">{listing.description ?? 'No description provided yet.'}</p>
+          </section>
+
+          <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-full">
+            <SectionHeader title="Listing details" helper={listing.listing_type} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {listing.listing_type === 'Attraction' && subtypeDetails && (
+                <>
+                  <DetailTile label="Activity" value={subtypeDetails.activity_name || 'N/A'} />
+                  <DetailTile label="Schedule" value={subtypeDetails.schedule_id || 'N/A'} />
+                  <DetailTile label="Coordinates" value={subtypeDetails.coordinates || 'N/A'} />
+                </>
+              )}
+              {listing.listing_type === 'Hotel' && subtypeDetails && (
+                <>
+                  <DetailTile label="Star rating" value={subtypeDetails.star_rating || 'N/A'} />
+                  <DetailTile label="Address" value={subtypeDetails.address || listing.address || 'N/A'} />
+                </>
+              )}
+              {listing.listing_type === 'Restaurant' && subtypeDetails && (
+                <>
+                  <DetailTile label="Cuisine" value={subtypeDetails.cuisine_type || 'N/A'} />
+                  <DetailTile label="Address" value={subtypeDetails.address || listing.address || 'N/A'} />
+                </>
+              )}
+              {!subtypeDetails && <DetailTile label="Details" value="Coming soon" />}
+            </div>
+          </section>
+        </div>
+
+        {/* Write review | Reviews — equal pair */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+          <ReviewForm listingId={listingId} onSubmitted={() => setRefreshKey((k) => k + 1)} />
+
+          <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <SectionHeader title="Reviews" helper={`${reviews.length} total`} />
+            <div className="flex items-center gap-3 mb-5">
+              <span className="text-4xl font-semibold tracking-tight text-slate-900">
+                {avg != null ? avg.toFixed(1) : '—'}
+              </span>
+              <div>
+                <div className="flex gap-0.5">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <Star key={n} className="w-4 h-4 text-amber-500" filled={avg != null && n <= Math.round(avg)} />
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Average from {reviews.length} traveler{reviews.length === 1 ? '' : 's'}</p>
               </div>
-            </section>
-
-            <ReviewForm listingId={listingId} onSubmitted={() => setRefreshKey((k) => k + 1)} />
-          </div>
-
-          <div>
-            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm sticky top-20">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Reviews</h2>
-              <div className="flex items-baseline gap-2 mb-4">
-                <span className="text-4xl font-bold text-slate-900">
-                  {listing.average_rating != null ? Number(listing.average_rating).toFixed(1) : '—'}
-                </span>
-                <Star className="w-5 h-5 text-amber-500" filled />
-                <span className="text-sm text-slate-500">
-                  ({reviews.length} review{reviews.length === 1 ? '' : 's'})
-                </span>
-              </div>
-              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
-                {reviews.length === 0 && <p className="text-sm text-slate-500">No reviews yet — be the first!</p>}
-                {reviews.map((review) => (
-                  <div key={review.review_id} className="border-b border-slate-100 pb-4 last:border-0">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <p className="font-semibold text-slate-900 text-sm">{review.user_name || 'TravelMate user'}</p>
+            </div>
+            <div className="space-y-5 max-h-[560px] overflow-y-auto pr-2">
+              {reviews.length === 0 && (
+                <p className="text-sm text-slate-500">No reviews yet — be the first to share your experience.</p>
+              )}
+              {reviews.map((review) => (
+                <div key={review.review_id} className="border-b border-slate-100 pb-5 last:border-0 last:pb-0">
+                  <div className="flex justify-between items-start gap-3 mb-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="w-9 h-9 shrink-0 rounded-full bg-slate-100 text-slate-600 text-sm font-semibold flex items-center justify-center">
+                        {(review.user_name ?? 'T').trim().charAt(0).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 text-sm truncate">{review.user_name || 'TravelMate user'}</p>
                         <p className="text-xs text-slate-400">
                           Visited {review.visit_date ? new Date(review.visit_date).toLocaleDateString() : 'recently'}
                         </p>
                       </div>
-                      <div className="flex gap-0.5">
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <Star key={n} className="w-3.5 h-3.5 text-amber-500" filled={n <= review.rating} />
-                        ))}
-                      </div>
                     </div>
-                    {review.title && <p className="font-medium text-slate-800 text-sm mb-1">{review.title}</p>}
-                    <p className="text-sm text-slate-600">{review.review_text}</p>
-                    {review.photo_url && (
-                      <img src={review.photo_url} alt="Photo from this review"
-                        className="mt-2 rounded-lg max-h-44 object-cover border border-slate-200" />
-                    )}
-                    {review.helpful_votes_count != null && review.helpful_votes_count > 0 && (
-                      <p className="text-xs text-slate-400 mt-2">{review.helpful_votes_count} found this helpful</p>
-                    )}
+                    <div className="flex gap-0.5 shrink-0">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <Star key={n} className="w-3.5 h-3.5 text-amber-500" filled={n <= review.rating} />
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
+                  {review.title && <p className="font-medium text-slate-800 text-sm mb-1">{review.title}</p>}
+                  <p className="text-sm text-slate-600 leading-relaxed">{review.review_text}</p>
+                  {review.photo_url && (
+                    <img
+                      src={review.photo_url}
+                      alt="Photo from this review"
+                      className="mt-3 rounded-xl max-h-44 object-cover border border-slate-200"
+                    />
+                  )}
+                  {review.helpful_votes_count != null && review.helpful_votes_count > 0 && (
+                    <p className="flex items-center gap-1.5 text-xs text-slate-400 mt-2">
+                      <ThumbUp className="w-3.5 h-3.5" />
+                      {review.helpful_votes_count} found this helpful
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
-          </div>
+          </section>
         </div>
       </div>
+
+      {/* Add to Trip Modal */}
+      {showAddToTrip && userId && (
+        <AddToTripModal
+          listingId={listingId}
+          userId={userId}
+          listingName={listing.name}
+          onClose={() => setShowAddToTrip(false)}
+          onSuccess={() => {
+            setShowAddToTrip(false);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
+
+      {/* Booking Modal */}
+      {showBooking && userId && (
+        <BookingModal
+          listingId={listingId}
+          userId={userId}
+          listingName={listing.name}
+          onClose={() => setShowBooking(false)}
+          onSuccess={() => {
+            setShowBooking(false);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
+
+      {/* Lightbox viewer */}
+      {lightbox != null && gallery.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/95 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <span className="absolute top-5 left-1/2 -translate-x-1/2 text-white/80 text-sm font-medium">
+            {lightbox + 1} / {gallery.length}
+          </span>
+          <button
+            aria-label="Close viewer"
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 text-white hover:bg-white/20 transition flex items-center justify-center"
+          >
+            <Close className="w-5 h-5" />
+          </button>
+          {gallery.length > 1 && (
+            <>
+              <button
+                aria-label="Previous photo"
+                onClick={(e) => { e.stopPropagation(); setLightbox((lightbox - 1 + gallery.length) % gallery.length); }}
+                className="absolute left-3 md:left-8 w-11 h-11 rounded-full bg-white/10 text-white hover:bg-white/20 transition flex items-center justify-center"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button
+                aria-label="Next photo"
+                onClick={(e) => { e.stopPropagation(); setLightbox((lightbox + 1) % gallery.length); }}
+                className="absolute right-3 md:right-8 w-11 h-11 rounded-full bg-white/10 text-white hover:bg-white/20 transition flex items-center justify-center"
+              >
+                <ChevronLeft className="w-5 h-5 rotate-180" />
+              </button>
+            </>
+          )}
+          <div className="max-w-5xl w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="aspect-[16/9] w-full rounded-xl overflow-hidden bg-slate-900">
+              <SafeImg src={gallery[lightbox]?.photo_url ?? null} alt={gallery[lightbox]?.caption ?? listing.name} type={listing.listing_type} />
+            </div>
+            {gallery[lightbox]?.caption && (
+              <p className="text-center text-white/70 text-sm mt-3">{gallery[lightbox].caption}</p>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function AddToTripModal({
+  listingId,
+  userId,
+  listingName,
+  onClose,
+  onSuccess,
+}: {
+  listingId: string;
+  userId: string;
+  listingName: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const supabase = createClient();
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [selectedTrip, setSelectedTrip] = useState<string>('');
+  const [newTripName, setNewTripName] = useState('');
+  const [newTripStart, setNewTripStart] = useState('');
+  const [newTripEnd, setNewTripEnd] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadTrips() {
+      const { data } = await supabase
+        .from('trips')
+        .select('*')
+        .eq('user_id', userId)
+        .order('start_date', { ascending: false });
+      setTrips((data ?? []) as Trip[]);
+    }
+    loadTrips();
+  }, [userId]);
+
+  async function handleAdd() {
+    setErr(null);
+    setBusy(true);
+    try {
+      let tripId = selectedTrip;
+      
+      // Create new trip if selected
+      if (!tripId && newTripName.trim()) {
+        const { data: existing } = await supabase.from('trips').select('trip_id');
+        const nums = (existing ?? [])
+          .map((r: any) => parseInt(String(r.trip_id).replace(/\D/g, ''), 10))
+          .filter((n: number) => !isNaN(n));
+        const nextId = `TRP-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`;
+        
+        const { error: tripErr } = await supabase.from('trips').insert({
+          trip_id: nextId,
+          user_id: userId,
+          trip_name: newTripName.trim(),
+          start_date: newTripStart || null,
+          end_date: newTripEnd || null,
+        });
+        if (tripErr) throw tripErr;
+        tripId = nextId;
+      }
+
+      if (!tripId) throw new Error('Please select or create a trip.');
+
+      // Check if already in trip
+      const { data: existing } = await supabase
+        .from('trip_items')
+        .select('item_id')
+        .eq('trip_id', tripId)
+        .eq('listing_id', listingId)
+        .maybeSingle();
+      
+      if (existing) throw new Error('This place is already in your trip.');
+
+      // Add to trip
+      const { error: itemErr } = await supabase.from('trip_items').insert({
+        trip_id: tripId,
+        listing_id: listingId,
+        visit_order: 999, // Add to end
+      });
+      if (itemErr) throw itemErr;
+
+      onSuccess();
+    } catch (e: any) {
+      setErr(e?.message ?? 'Could not add to trip.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>
-      <p className="text-slate-800 font-medium">{value}</p>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">Add to trip</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+            <Close className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-sm text-slate-500 mb-4">Adding: <span className="font-medium text-slate-900">{listingName}</span></p>
+
+        {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>}
+
+        <div className="space-y-4">
+          {trips.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Select existing trip</label>
+              <select
+                value={selectedTrip}
+                onChange={(e) => setSelectedTrip(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+              >
+                <option value="">— Choose a trip —</option>
+                {trips.map((t) => (
+                  <option key={t.trip_id} value={t.trip_id}>
+                    {t.trip_name} {t.start_date ? `(${new Date(t.start_date).toLocaleDateString()})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-white px-3 text-slate-400 uppercase tracking-wider">Or create new</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Trip name</label>
+            <input
+              value={newTripName}
+              onChange={(e) => setNewTripName(e.target.value)}
+              maxLength={100}
+              placeholder="e.g., Japan Adventure"
+              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Start date</label>
+              <input
+                type="date"
+                value={newTripStart}
+                onChange={(e) => setNewTripStart(e.target.value)}
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">End date</label>
+              <input
+                type="date"
+                value={newTripEnd}
+                onChange={(e) => setNewTripEnd(e.target.value)}
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleAdd}
+            disabled={busy || (!selectedTrip && !newTripName.trim())}
+            className="flex-1 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60"
+          >
+            {busy ? 'Adding…' : 'Add to trip'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function SafeImg({ src, alt, type }: { src: string; alt: string; type: string }) {
-  const [failed, setFailed] = useState(false);
-  const usable = !!src && !failed;
-  return usable ? (
-    <img src={src} alt={alt} onError={() => setFailed(true)} className="w-full h-full object-cover" />
-  ) : (
-    <div className="w-full h-full flex items-center justify-center text-slate-400 bg-gradient-to-br from-slate-100 to-slate-200">
-      <span className="text-xs font-semibold uppercase tracking-wider">{type}</span>
+function BookingModal({
+  listingId,
+  userId,
+  listingName,
+  onClose,
+  onSuccess,
+}: {
+  listingId: string;
+  userId: string;
+  listingName: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const supabase = createClient();
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
+  const [guests, setGuests] = useState(1);
+  const [requests, setRequests] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  async function handleBook() {
+    setErr(null);
+    setBusy(true);
+    try {
+      if (!checkIn || !checkOut) throw new Error('Please select check-in and check-out dates.');
+      if (new Date(checkOut) <= new Date(checkIn)) throw new Error('Check-out must be after check-in.');
+
+      const { data: existing } = await supabase.from('bookings').select('booking_id');
+      const nums = (existing ?? [])
+        .map((r: any) => parseInt(String(r.booking_id).replace(/\D/g, ''), 10))
+        .filter((n: number) => !isNaN(n));
+      const nextId = `BKG-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`;
+
+      const { error } = await supabase.from('bookings').insert({
+        booking_id: nextId,
+        listing_id: listingId,
+        user_id: userId,
+        check_in: checkIn,
+        check_out: checkOut,
+        guests,
+        special_requests: requests.trim() || null,
+        status: 'pending',
+      });
+      if (error) throw error;
+
+      setSuccess(true);
+      setTimeout(() => {
+        onSuccess();
+      }, 2000);
+    } catch (e: any) {
+      setErr(e?.message ?? 'Could not submit booking.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">Book now</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+            <Close className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-sm text-slate-500 mb-4">Booking: <span className="font-medium text-slate-900">{listingName}</span></p>
+
+        {success ? (
+          <div className="text-center py-8">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+              <Check className="w-8 h-8 text-emerald-600" />
+            </div>
+            <h4 className="text-lg font-semibold text-slate-900 mb-2">Booking request sent!</h4>
+            <p className="text-sm text-slate-500">The owner will review your request and get back to you soon.</p>
+          </div>
+        ) : (
+          <>
+            {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>}
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Check-in</label>
+                  <input
+                    type="date"
+                    value={checkIn}
+                    onChange={(e) => setCheckIn(e.target.value)}
+                    min={new Date().toISOString().slice(0, 10)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Check-out</label>
+                  <input
+                    type="date"
+                    value={checkOut}
+                    onChange={(e) => setCheckOut(e.target.value)}
+                    min={checkIn || new Date().toISOString().slice(0, 10)}
+                    className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Guests</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={guests}
+                  onChange={(e) => setGuests(parseInt(e.target.value) || 1)}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Special requests (optional)</label>
+                <textarea
+                  value={requests}
+                  onChange={(e) => setRequests(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  placeholder="e.g., Early check-in, specific room preference"
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={onClose}
+                className="flex-1 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBook}
+                disabled={busy || !checkIn || !checkOut}
+                className="flex-1 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60"
+              >
+                {busy ? 'Submitting…' : 'Submit request'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -287,6 +922,7 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
       setChecked(true);
     }
     who();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function submit(e: React.FormEvent) {
@@ -346,9 +982,9 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
   if (!userId) {
     return (
       <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900 mb-2">Write a review</h2>
+        <SectionHeader title="Write a review" helper="Sign in required" />
         <p className="text-sm text-slate-500">
-          <a href="/login" className="text-blue-600 underline hover:text-blue-700">Sign in</a> to share your experience at this place.
+          <Link href="/login" className="text-blue-600 underline hover:text-blue-700">Sign in</Link> to share your experience at this place.
         </p>
       </section>
     );
@@ -356,17 +992,22 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
 
   return (
     <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-      <h2 className="text-lg font-semibold text-slate-900 mb-4">Write a review</h2>
+      <SectionHeader title="Write a review" helper="One review per traveler (BR-011)" />
       {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>}
       {msg && <p className="bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl px-4 py-3 text-sm mb-4">{msg}</p>}
       <form onSubmit={submit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-2">Your rating</label>
-          <div className="flex gap-1">
+          <div className="flex justify-center gap-2">
             {[1, 2, 3, 4, 5].map((n) => (
-              <button key={n} type="button" onClick={() => setRating(n)}
-                className={`text-2xl transition hover:scale-110 ${n <= rating ? 'text-amber-500' : 'text-slate-300'}`}>
-                <Star className="w-6 h-6" filled={n <= rating} />
+              <button
+                key={n}
+                type="button"
+                onClick={() => setRating(n)}
+                aria-label={`Rate ${n} stars`}
+                className={`p-1.5 rounded-xl transition hover:scale-110 ${n <= rating ? 'text-amber-500 bg-amber-50' : 'text-slate-300 hover:text-slate-400'}`}
+              >
+                <Star className="w-7 h-7" filled={n <= rating} />
               </button>
             ))}
           </div>
@@ -376,30 +1017,54 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
             <label className="block text-sm font-medium text-slate-700">Title (optional)</label>
             <span className="text-xs text-slate-400">{title.length}/50</span>
           </div>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={50} placeholder="A short headline"
-            className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={50}
+            placeholder="A short headline"
+            className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+          />
         </div>
         <div>
           <div className="flex items-baseline justify-between mb-1.5">
             <label className="block text-sm font-medium text-slate-700">Your review</label>
             <span className="text-xs text-slate-400">{text.length}/300</span>
           </div>
-          <textarea required value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={300}
+          <textarea
+            required
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={4}
+            maxLength={300}
             placeholder="What was your experience like? Would you recommend this place?"
-            className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
+            className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+          />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Add a photo (optional)</label>
-          <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Photo (optional)</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Visit date (optional)</label>
+            <input
+              type="date"
+              value={visitDate}
+              onChange={(e) => setVisitDate(e.target.value)}
+              className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+            />
+          </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Visit date (optional)</label>
-          <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)}
-            className="px-4 py-2 border border-slate-300 rounded-xl" />
-        </div>
-        <button type="submit" disabled={busy}
-          className="w-full py-3 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60">
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full py-3 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60"
+        >
           {busy ? 'Publishing…' : 'Publish review'}
         </button>
       </form>
