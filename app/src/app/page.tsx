@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import Footer from '@/components/Footer';
 import SmartSearch from '@/components/SmartSearch';
@@ -223,8 +223,6 @@ export default function HomePage() {
   const [forecast, setForecast] = useState<ForecastDay[]>(FALLBACK_OUTLOOK);
   const [forecastLocation, setForecastLocation] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [activity, setActivity] = useState<string | null>(null);
-  const [budget, setBudget] = useState<string | null>(null);
 
   const [trips, setTrips] = useState<TripData[]>([]);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
@@ -254,6 +252,7 @@ export default function HomePage() {
     | null
   >(null);
   const hoverTimer = useRef<any>(null);
+  const searchParams = useSearchParams();
 
   async function loadForecast(loc: string | null) {
     if (!loc) {
@@ -497,8 +496,6 @@ export default function HomePage() {
     const params = new URLSearchParams();
     const finalQuery = (q ?? query).trim();
     if (finalQuery) params.set('q', finalQuery);
-    if (activity) params.set('activity', activity);
-    if (budget) params.set('budget', budget);
     router.push(`/search?${params.toString()}`);
   }
 
@@ -869,6 +866,13 @@ export default function HomePage() {
     }
   }, [selectedTrip?.trip_id, plannedDates.length]);
 
+  // Deep link from /my-trips: /?trip=TRP-001 selects that trip
+  useEffect(() => {
+    const t = searchParams.get('trip');
+    if (t && trips.some((x) => x.trip_id === t)) setSelectedTripId(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trips]);
+
   function startHover(
     payload: { kind: 'listing'; id: string } | { kind: 'destination'; name: string },
     el: HTMLElement
@@ -934,24 +938,6 @@ export default function HomePage() {
             <SmartSearch placeholder='Where to? Try "Japan", "Kyoto", or "Palawan"' />
           </div>
 
-          <div className="mt-6 grid grid-cols-[auto_1fr] items-center gap-x-5 gap-y-3">
-            <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Activity</span>
-            <div className="flex flex-wrap gap-2">
-              {ACTIVITIES.map((a) => (
-                <button key={a} type="button" onClick={() => setActivity(activity === a ? null : a)} className={chip(activity === a)}>
-                  {a}
-                </button>
-              ))}
-            </div>
-            <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Budget</span>
-            <div className="flex flex-wrap gap-2">
-              {BUDGETS.map((b) => (
-                <button key={b} type="button" onClick={() => setBudget(budget === b ? null : b)} className={chip(budget === b)}>
-                  {b}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {recent.length > 0 && (
             <div className="mt-5 flex items-center gap-2 flex-wrap">
@@ -972,7 +958,17 @@ export default function HomePage() {
       </section>
 
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
-        <SectionHeader title="Trip planner" helper="Dates, itineraries, and smart place suggestions" />
+        <div className="flex items-end justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Trip planner</h2>
+            <span className="text-xs text-slate-400">Dates, itineraries, and smart place suggestions</span>
+          </div>
+          {userId && (
+            <Link href="/my-trips" className="text-xs font-medium text-blue-600 hover:text-blue-700 whitespace-nowrap">
+              My trips & bookings →
+            </Link>
+          )}
+        </div>
 
         {!userId ? (
           <div className="bg-white border border-slate-200 rounded-2xl p-10 shadow-sm text-center">
@@ -1412,69 +1408,118 @@ export default function HomePage() {
         )}
       </section>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 w-full">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-base font-semibold text-slate-900">Explore places</h2>
-            <span className="text-xs text-slate-400">{exploreList.length} live listings · scroll sideways</span>
+           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 w-full">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-900">Explore places</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              {exploreList.length} live listings · scroll to discover more
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {EXPLORE_TABS.map((t) => (
-              <button key={t} type="button" onClick={() => setExploreType(t)} className={chip(exploreType === t)}>
+              <button
+                key={t}
+                type="button"
+                onClick={() => setExploreType(t)}
+                className={`px-4 py-2 rounded-full text-sm font-medium border transition ${
+                  exploreType === t
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                    : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400 hover:text-slate-800'
+                }`}
+              >
                 {t === 'All' ? 'All places' : `${t}s`}
               </button>
             ))}
           </div>
         </div>
+
         <div className="relative">
-          <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory">
+          <div className="flex gap-5 overflow-x-auto pb-6 snap-x snap-mandatory scrollbar-hide">
             {exploreList.map((l) => (
               <Link
                 key={l.listing_id}
                 href={`/listing/${l.listing_id}`}
                 onMouseEnter={(e) => startHover({ kind: 'listing', id: l.listing_id }, e.currentTarget)}
                 onMouseLeave={cancelHover}
-                className="w-72 shrink-0 snap-start group rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm hover:shadow-lg hover:-translate-y-1 transition"
+                className="w-80 shrink-0 snap-start group rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
               >
-                <div className="relative h-44 overflow-hidden">
+                <div className="relative h-52 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200">
                   {l.image_url ? (
-                    <img src={l.image_url} alt="" className="w-full h-44 object-cover transition duration-500 group-hover:scale-105" />
+                    <img
+                      src={l.image_url}
+                      alt={l.name}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    />
                   ) : (
-                    <div className="w-full h-44 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{l.listing_type}</span>
+                    <div className="w-full h-full flex items-center justify-center">
+                      <span className="text-2xl font-bold text-slate-400">{l.listing_type.charAt(0)}</span>
                     </div>
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900/70 via-slate-900/10 to-transparent" />
-                  <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white/90 text-slate-700">
+                  
+                  {/* Gradient overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                  
+                  {/* Type badge */}
+                  <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white/95 text-slate-700 shadow-sm">
                     {l.listing_type}
                   </span>
+
+                  {/* Rating badge */}
                   {l.average_rating != null && (
-                    <span className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/40 backdrop-blur text-white text-[11px] font-semibold">
-                      <Star className="w-3 h-3 text-amber-400" />
+                    <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-sm text-white text-xs font-semibold shadow-sm">
+                      <svg className="w-3.5 h-3.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.958a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.367 2.446a1 1 0 00-.363 1.118l1.286 3.958c.3.922-.755 1.688-1.539 1.118l-3.367-2.446a1 1 0 00-1.175 0l-3.367 2.446c-.783.57-1.838-.196-1.539-1.118l1.286-3.958a1 1 0 00-.363-1.118L2.063 9.385c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.958z" />
+                      </svg>
                       {Number(l.average_rating).toFixed(1)}
-                    </span>
+                    </div>
                   )}
-                  <div className="absolute bottom-0 left-0 right-0 p-3">
-                    <p className="font-semibold text-white truncate">{l.name}</p>
-                    <p className="text-xs text-slate-200 truncate">
-                      {l.destination?.destination_name}, {l.destination?.region_country}
-                    </p>
+
+                  {/* Bottom info overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 p-4">
+                    <p className="font-semibold text-white text-lg leading-tight truncate">{l.name}</p>
+                    <div className="flex items-center gap-1.5 mt-1 text-white/90 text-xs">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M12 21s-7-5.1-7-11a7 7 0 1114 0c0 5.9-7 11-7 11z" strokeLinecap="round" />
+                        <circle cx="12" cy="10" r="2.5" />
+                      </svg>
+                      <span className="truncate">
+                        {l.destination?.destination_name}, {l.destination?.region_country}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="p-4 flex items-center justify-between gap-2">
-                  <span className="text-xs text-slate-500 truncate">
-                    {subtypeMap[l.listing_id] ? subtypeMap[l.listing_id].value : (l.description ?? '').slice(0, 40) || 'Discover this place'}
-                  </span>
-                  <span className="flex items-center gap-1 text-xs font-medium text-blue-600 whitespace-nowrap group-hover:translate-x-0.5 transition">
-                    View
-                    <Chevron className="w-3.5 h-3.5" />
-                  </span>
+
+                {/* Card body */}
+                <div className="p-4">
+                  <p className="text-sm text-slate-600 leading-relaxed line-clamp-2">
+                    {subtypeMap[l.listing_id]
+                      ? subtypeMap[l.listing_id].value
+                      : (l.description ?? '').slice(0, 60) || 'Discover this place'}
+                  </p>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-blue-600 group-hover:text-blue-700 transition">
+                      View details
+                      <svg className="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  </div>
                 </div>
               </Link>
             ))}
-            {exploreList.length === 0 && <p className="text-sm text-slate-500 py-8">No listings of this type yet.</p>}
+            {exploreList.length === 0 && (
+              <p className="text-sm text-slate-500 py-8 w-full text-center">No listings of this type yet.</p>
+            )}
           </div>
-          <div className="pointer-events-none absolute inset-y-0 right-0 bottom-4 w-16 bg-gradient-to-l from-slate-50 to-transparent" />
+          
+          {/* Scroll indicators */}
+          {exploreList.length > 0 && (
+            <>
+              <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-slate-50 to-transparent" />
+              <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-slate-50 to-transparent" />
+            </>
+          )}
         </div>
       </section>
 
@@ -1562,6 +1607,13 @@ export default function HomePage() {
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col">
           <h2 className="text-base font-semibold text-slate-900 mb-4">Quick actions</h2>
           <div className="space-y-2 flex-1 flex flex-col justify-between gap-2">
+              <Link
+              href="/my-trips"
+              className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
+            >
+              My trips & bookings
+              <Chevron className="w-4 h-4 text-slate-300" />
+            </Link>
             <Link
               href="/search"
               className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"

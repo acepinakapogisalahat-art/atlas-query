@@ -85,6 +85,11 @@ export default function Navbar() {
 >
 </Link>
             <Link href="/search" className={linkCls}>Search</Link>
+                      {role.authId && (
+            <Link href="/my-trips" className="text-sm font-medium text-slate-600 hover:text-slate-900 transition">
+              My trips
+            </Link>
+          )}
           </div>
         </div>
 

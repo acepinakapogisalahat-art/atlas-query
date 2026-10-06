@@ -17,6 +17,8 @@ type ListingRow = {
   average_rating: number | null;
   destination_name: string;
   region_country: string;
+  budget_tier: string | null;
+  activity_tag: string | null;
 };
 
 const TABS = ['All', 'Attractions', 'Hotels', 'Restaurants'];
@@ -74,7 +76,21 @@ export default function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  const visible = tab === 'All' ? rows : rows.filter((r) => r.listing_type === tab.replace(/s$/, ''));
+  const typeParam = searchParams.get('type');
+  const budgetParam = searchParams.get('budget');
+  const activityParam = searchParams.get('activity');
+
+  useEffect(() => {
+    if (typeParam === 'Attraction') setTab('Attractions');
+    else if (typeParam === 'Hotel') setTab('Hotels');
+    else if (typeParam === 'Restaurant') setTab('Restaurants');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeParam]);
+
+  const visible = rows
+    .filter((r) => tab === 'All' || r.listing_type === tab.replace(/s$/, ''))
+    .filter((r) => !budgetParam || r.budget_tier === budgetParam)
+    .filter((r) => !activityParam || r.activity_tag === activityParam);
 
   const chip = (active: boolean) =>
     `px-4 py-2 rounded-full text-sm font-medium border transition ${
@@ -100,6 +116,17 @@ export default function SearchPage() {
         <div className="flex justify-start mb-8">
           <SmartSearch initialValue={q} placeholder='Refine your search — try "Japan" or "beach"' />
         </div>
+
+        {(budgetParam || activityParam) && (
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Filters</span>
+            {budgetParam && <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">{budgetParam}</span>}
+            {activityParam && <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">{activityParam}</span>}
+            <Link href={`/search?q=${encodeURIComponent(q)}`} className="text-xs font-medium text-blue-600 hover:text-blue-700 underline">
+              Clear filters
+            </Link>
+          </div>
+               )}
 
         <div className="flex items-center gap-2 mb-6 flex-wrap">
           {TABS.map((t) => (
