@@ -101,6 +101,11 @@ export default function SignupPage() {
       setBusy(false);
       return;
     }
+        // Wipe browser history so the back button never returns to signup
+    try {
+      window.history.replaceState(null, '', '/');
+    } catch {}
+    router.push('/');
     router.push('/');
     router.refresh();
   }

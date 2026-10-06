@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { useRole } from '@/utils/supabase/role';
 
@@ -93,6 +94,7 @@ function StatTile({ label, value }: { label: string; value: string }) {
 export default function MyTripsPage() {
   const supabase = createClient();
   const role = useRole();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [trips, setTrips] = useState<TripRow[]>([]);
   const [bookings, setBookings] = useState<BookingRow[]>([]);
@@ -104,6 +106,12 @@ export default function MyTripsPage() {
     if (!role.loading && !role.userId) setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role.loading, role.userId]);
+
+  // Managers (owners/admins) have no traveler trips — send them to the hub
+  useEffect(() => {
+    if (!role.loading && (role.isOwner || role.isAdmin)) router.replace('/business');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role.loading, role.isOwner, role.isAdmin]);
 
   async function load(uid: string) {
     const { data: t } = await supabase.from('trips').select('*').eq('user_id', uid).order('start_date', { ascending: false });

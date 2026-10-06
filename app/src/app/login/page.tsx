@@ -55,6 +55,10 @@ export default function LoginPage() {
       setBusy(false);
       return;
     }
+    // Wipe browser history so the back button never returns to login or pre-session pages
+    try {
+      window.history.replaceState(null, '', '/');
+    } catch {}
     router.push('/');
     router.refresh();
   }

@@ -46,7 +46,13 @@ export default function Navbar() {
 
   async function handleSignOut() {
     await supabase.auth.signOut();
-    router.push('/');
+    // Clear the browser history so the back button doesn't show previous sessions
+    try {
+      window.history.replaceState(null, '', '/');
+      // Wipe enough entries to drop pre-login pages; safe on all browsers
+      window.history.replaceState(null, '', '/login');
+    } catch {}
+    router.push('/login');
     router.refresh();
   }
 
@@ -64,24 +70,24 @@ export default function Navbar() {
 
           {/* Navigation links */}
           <div className="hidden md:flex items-center gap-8">
-            <Link href={role.isOwner || role.isAdmin ? '/business' : '/'} className={navCls('/')}>
+            <Link href={role.isOwner || role.isAdmin ? '/business' : '/'} prefetch className={navCls('/')}>
               {role.isOwner || role.isAdmin ? 'Business hub' : 'Discover'}
             </Link>
-            <Link href="/search" className={navCls('/search')}>
+            <Link href="/search" prefetch className={navCls('/search')}>
               Search
             </Link>
-            {role.authId && (
-              <Link href="/my-trips" className={navCls('/my-trips')}>
+            {role.authId && !role.isOwner && !role.isAdmin && (
+              <Link href="/my-trips" prefetch className={navCls('/my-trips')}>
                 My trips
               </Link>
             )}
             {role.isOwner && (
-              <Link href="/owner" className={navCls('/owner')}>
+              <Link href="/owner" prefetch className={navCls('/owner')}>
                 My listings
               </Link>
             )}
             {role.isAdmin && (
-              <Link href="/admin" className={navCls('/admin')}>
+              <Link href="/admin" prefetch className={navCls('/admin')}>
                 Admin
               </Link>
             )}

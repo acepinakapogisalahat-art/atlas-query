@@ -914,8 +914,27 @@ export default function HomePage() {
 
   if (role.authId && routing === null) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-sm text-slate-400">Loading your dashboard…</p>
+      <main className="min-h-screen bg-slate-50 pb-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          {/* Hero skeleton */}
+          <div className="bg-gradient-to-b from-blue-50/60 via-white to-white border-b border-slate-200 mb-8">
+            <div className="pt-16 pb-12">
+              <div className="h-12 bg-slate-200 rounded-xl w-96 mx-auto animate-pulse" />
+              <div className="h-6 bg-slate-100 rounded-lg w-[600px] mx-auto mt-4 animate-pulse" />
+              <div className="h-16 bg-slate-100 rounded-2xl w-full max-w-3xl mx-auto mt-8 animate-pulse" />
+            </div>
+          </div>
+
+          {/* Trip planner skeleton */}
+          <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-6">
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-28 bg-white border border-slate-200 rounded-2xl animate-pulse" />
+              ))}
+            </div>
+            <div className="h-96 bg-white border border-slate-200 rounded-2xl animate-pulse" />
+          </div>
+        </div>
       </main>
     );
   }

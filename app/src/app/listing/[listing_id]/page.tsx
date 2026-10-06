@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
+import { useRole } from '@/utils/supabase/role';
 
 type Review = {
   review_id: string;
@@ -152,7 +153,11 @@ export default function ListingDetailPage() {
   const params = useParams();
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const listingId = params.listing_id as string;
+
+  // Hide traveler-only actions (book, add to trip, review) from owners/admins
+  const isManager = role.isOwner || role.isAdmin;
 
   const [listing, setListing] = useState<any>(null);
   const [destination, setDestination] = useState<any>(null);
@@ -169,10 +174,8 @@ export default function ListingDetailPage() {
   const [inTripCount, setInTripCount] = useState(0);
   const [scheduleInfo, setScheduleInfo] = useState<{ open_time: string | null; close_time: string | null } | null>(null);
 
-  // SCROLL-TO-TOP: fires on every listingId change, reliably
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
-    // Also a delayed scroll in case content loads async
     const t = setTimeout(() => window.scrollTo(0, 0), 50);
     return () => clearTimeout(t);
   }, [listingId]);
@@ -379,28 +382,31 @@ export default function ListingDetailPage() {
               )}
             </div>
 
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => {
-                  if (!userId) router.push('/login');
-                  else setShowAddToTrip(true);
-                }}
-                className="flex items-center gap-2 px-6 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50/40 transition shadow-sm"
-              >
-                {inTripCount > 0 ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                {inTripCount > 0 ? `In ${inTripCount} trip${inTripCount === 1 ? '' : 's'}` : 'Add to trip'}
-              </button>
-              <button
-                onClick={() => {
-                  if (!userId) router.push('/login');
-                  else setShowBooking(true);
-                }}
-                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm"
-              >
-                <Calendar className="w-4 h-4" />
-                Book now
-              </button>
-            </div>
+            {/* Traveler actions — hidden for owners/admins */}
+            {!isManager && (
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    if (!userId) router.push('/login');
+                    else setShowAddToTrip(true);
+                  }}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50/40 transition shadow-sm"
+                >
+                  {inTripCount > 0 ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                  {inTripCount > 0 ? `In ${inTripCount} trip${inTripCount === 1 ? '' : 's'}` : 'Add to trip'}
+                </button>
+                <button
+                  onClick={() => {
+                    if (!userId) router.push('/login');
+                    else setShowBooking(true);
+                  }}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm"
+                >
+                  <Calendar className="w-4 h-4" />
+                  Book now
+                </button>
+              </div>
+            )}
           </div>
 
           {/* RIGHT — gallery */}
@@ -496,7 +502,27 @@ export default function ListingDetailPage() {
 
         {/* Write review | Reviews */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-          <ReviewForm listingId={listingId} onSubmitted={() => setRefreshKey((k) => k + 1)} />
+          {/* Review form — travelers only */}
+          {!isManager ? (
+            <ReviewForm listingId={listingId} onSubmitted={() => setRefreshKey((k) => k + 1)} />
+          ) : (
+            <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <SectionHeader title="Write a review" helper="Manager view" />
+              <p className="text-sm text-slate-500">
+                Traveler actions (bookings, trip additions, reviews) are hidden for your role.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-4">
+                <Link href="/business" className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition">
+                  Open business hub
+                </Link>
+                {role.isAdmin && (
+                  <Link href="/admin" className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition">
+                    Admin manager
+                  </Link>
+                )}
+              </div>
+            </section>
+          )}
 
           <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
             <SectionHeader title="Reviews" helper={`${reviews.length} total`} />
@@ -559,8 +585,8 @@ export default function ListingDetailPage() {
         </div>
       </div>
 
-      {/* Add to Trip Modal */}
-      {showAddToTrip && userId && (
+      {/* Add to Trip Modal — travelers only */}
+      {!isManager && showAddToTrip && userId && (
         <AddToTripModal
           listingId={listingId}
           userId={userId}
@@ -574,8 +600,8 @@ export default function ListingDetailPage() {
         />
       )}
 
-      {/* Booking Modal */}
-      {showBooking && userId && (
+      {/* Booking Modal — travelers only */}
+      {!isManager && showBooking && userId && (
         <BookingModal
           listingId={listingId}
           userId={userId}

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/utils/supabase/client';
 import { useRole } from '@/utils/supabase/role';
 
-type ListingRow = { listing_id: string; name: string; listing_type: string; destination_id: string; description: string | null; address: string | null; image_url: string | null };
+type ListingRow = { listing_id: string; name: string; listing_type: string; destination_id: string; description: string | null; address: string | null; image_url: string | null; average_rating: number | null };
 type DestRow = { destination_id: string; destination_name: string; region_country: string };
 
 const PREFIX: Record<string, { p: string; pad: number }> = {
@@ -22,8 +22,80 @@ function nextId(existing: string[], prefix: string, pad: number) {
 }
 
 const EMPTY = { listing_id: '', destination_id: '', listing_type: 'Attraction', name: '', description: '', address: '', activity_name: '', coordinates: '', star_rating: '', cuisine_type: '' };
-const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-sm';
-const labelCls = 'block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1';
+const inputCls = 'w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition';
+const labelCls = 'block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5';
+
+function StatTile({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">{label}</p>
+      <p className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+        {icon}
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function Store({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-5 h-5'}>
+      <path d="M4 10v10h16V10" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 6l1.5-3h15L21 6c0 1.7-1.3 3-3 3s-3-1.3-3-3c0 1.7-1.3 3-3 3S9 7.7 9 6c0 1.7-1.3 3-3 3S3 7.7 3 6z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 20v-6h6v6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Star({ className, filled }: { className?: string; filled?: boolean }) {
+  return (
+    <svg viewBox="0 0 20 20" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" className={className ?? 'w-4 h-4'}>
+      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.958a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.367 2.446a1 1 0 00-.363 1.118l1.286 3.958c.3.922-.755 1.688-1.539 1.118l-3.367-2.446a1 1 0 00-1.175 0l-3.367 2.446c-.783.57-1.838-.196-1.539-1.118l1.286-3.958a1 1 0 00-.363-1.118L2.063 9.385c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.958z" />
+    </svg>
+  );
+}
+
+function CalendarIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-5 h-5'}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M8 3v4M16 3v4M3 10h18" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MessageIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-5 h-5'}>
+      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function EditIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-3.5 h-3.5'}>
+      <path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-3.5 h-3.5'}>
+      <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-3.5 h-3.5'}>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
 
 export default function OwnerPage() {
   const supabase = createClient();
@@ -40,6 +112,9 @@ export default function OwnerPage() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Stats
+  const [stats, setStats] = useState({ totalListings: 0, avgRating: 0, totalReviews: 0, pendingBookings: 0 });
+
   useEffect(() => {
     if (!role.loading && role.isOwner) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -50,11 +125,29 @@ export default function OwnerPage() {
       supabase.from('listings').select('*').eq('uploaded_by', role.userId).order('listing_id'),
       supabase.from('destinations').select('*'),
     ]);
-    setListings((mine ?? []) as ListingRow[]);
+    const mineRows = (mine ?? []) as ListingRow[];
+    setListings(mineRows);
     setDestinations(dests ?? []);
     const map: Record<string, string> = {};
     (dests ?? []).forEach((d: any) => { map[d.destination_id] = `${d.destination_name} — ${d.region_country}`; });
     setDestNames(map);
+
+    // Stats
+    const ids = mineRows.map((l) => l.listing_id);
+    const rated = mineRows.map((l) => l.average_rating).filter((v): v is number => v != null);
+    const avgRating = rated.length ? rated.reduce((a, b) => a + b, 0) / rated.length : 0;
+
+    let totalReviews = 0;
+    let pendingBookings = 0;
+    if (ids.length) {
+      const [{ count: revCount }, { count: bkCount }] = await Promise.all([
+        supabase.from('reviews').select('review_id', { count: 'exact', head: true }).in('listing_id', ids),
+        supabase.from('bookings').select('booking_id', { count: 'exact', head: true }).in('listing_id', ids).eq('status', 'pending'),
+      ]);
+      totalReviews = revCount ?? 0;
+      pendingBookings = bkCount ?? 0;
+    }
+    setStats({ totalListings: mineRows.length, avgRating, totalReviews, pendingBookings });
   }
 
   async function reloadDestinations() {
@@ -180,24 +273,32 @@ export default function OwnerPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  if (role.loading) return <main className="p-8 text-center">Checking role…</main>;
+  if (role.loading) {
+    return (
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-sm text-slate-400">Checking role…</p>
+      </main>
+    );
+  }
   if (!role.authId) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
-        <div className="bg-white border border-gray-200 rounded-xl p-8 max-w-md text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Publishers only</h1>
-          <p className="text-gray-500"><Link href="/login" className="text-blue-600 underline">Sign in</Link> to manage your listings.</p>
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-md text-center shadow-sm">
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Publishers only</h1>
+          <p className="text-slate-500 text-sm">
+            <Link href="/login" className="text-blue-600 underline">Sign in</Link> to manage your listings.
+          </p>
         </div>
       </main>
     );
   }
   if (!role.isOwner) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
-        <div className="bg-white border border-amber-200 rounded-xl p-8 max-w-md text-center">
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
+        <div className="bg-white border border-amber-200 rounded-2xl p-8 max-w-md text-center shadow-sm">
           <p className="text-4xl mb-3">📝</p>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Not a publisher yet</h1>
-          <p className="text-sm text-gray-600 mb-4">
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Not a publisher yet</h1>
+          <p className="text-sm text-slate-600 mb-4">
             {role.application?.status === 'pending'
               ? `Your application ${role.application.application_id} is still under review.`
               : 'Apply to become an approved business owner to publish your own listings.'}
@@ -209,69 +310,112 @@ export default function OwnerPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+    <main className="min-h-screen bg-slate-50 pb-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">My Listings</h1>
-            <p className="text-sm text-gray-500">
-              Process 5 – scoped publisher dashboard · {role.ownerId} · BR-026: you manage only your own listings
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">My Listings</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Publisher dashboard · {role.ownerId} · BR-026 scoped to your own listings
             </p>
           </div>
-          <Link href="/" className="text-sm text-blue-600 underline">Back to Discover</Link>
+          <Link href="/business" className="text-sm font-medium text-blue-600 hover:text-blue-700 whitespace-nowrap">
+            ← Business hub
+          </Link>
         </div>
 
-        {msg && <p className="bg-green-50 text-green-700 border border-green-200 rounded-lg px-4 py-3 text-sm mb-4">{msg}</p>}
-        {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-lg px-4 py-3 text-sm mb-4">{err}</p>}
+        {msg && (
+          <p className="bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl px-4 py-3 text-sm mb-5 shadow-sm">
+            {msg}
+          </p>
+        )}
+        {err && (
+          <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-5 shadow-sm">
+            {err}
+          </p>
+        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <section className="bg-white border border-gray-200 rounded-xl p-6 h-fit">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
+        {/* Stats strip */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+          <StatTile label="Total listings" value={String(stats.totalListings)} icon={<Store className="w-5 h-5 text-slate-400" />} />
+          <StatTile
+            label="Average rating"
+            value={stats.avgRating > 0 ? stats.avgRating.toFixed(1) : '—'}
+            icon={stats.avgRating > 0 ? <Star className="w-5 h-5 text-amber-500" filled /> : undefined}
+          />
+          <StatTile label="Total reviews" value={String(stats.totalReviews)} icon={<MessageIcon className="w-5 h-5 text-slate-400" />} />
+          <StatTile label="Pending bookings" value={String(stats.pendingBookings)} icon={<CalendarIcon className="w-5 h-5 text-amber-500" />} />
+        </div>
+
+        {/* Main grid: form (left) + listings (right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          {/* LEFT — publish/edit form */}
+          <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm lg:sticky lg:top-6">
+            <h2 className="text-xl font-bold text-slate-900 mb-4">
               {editing ? `Edit ${form.listing_id}` : 'Publish a listing'}
             </h2>
 
-            <div className="grid grid-cols-2 gap-1 bg-gray-100 p-1 rounded-lg mb-4">
-              <button type="button" disabled={editing}
+            <div className="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl mb-5">
+              <button
+                type="button"
+                disabled={editing}
                 onClick={() => { setMode('new'); setForm({ ...form, destination_id: '' }); }}
-                className={`py-2 text-sm rounded-md transition ${
-                  mode === 'new' && !editing ? 'bg-white shadow text-purple-700 font-medium' : 'text-gray-600 hover:text-gray-900'
-                } ${editing ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                className={`py-2 text-sm rounded-lg transition ${
+                  mode === 'new' && !editing ? 'bg-white shadow text-blue-700 font-semibold' : 'text-slate-600 hover:text-slate-900'
+                } ${editing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
                 + New place
               </button>
-              <button type="button" onClick={() => setMode('existing')}
-                className={`py-2 text-sm rounded-md transition ${
-                  mode === 'existing' ? 'bg-white shadow text-purple-700 font-medium' : 'text-gray-600 hover:text-gray-900'
-                }`}>
+              <button
+                type="button"
+                onClick={() => setMode('existing')}
+                className={`py-2 text-sm rounded-lg transition ${
+                  mode === 'existing' ? 'bg-white shadow text-blue-700 font-semibold' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
                 Existing place
               </button>
             </div>
 
-            <form onSubmit={publish} className="space-y-3">
+            <form onSubmit={publish} className="space-y-4">
               {!editing && mode === 'new' && (
-                <div className="p-3 border border-purple-200 bg-purple-50 rounded-lg space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">New destination</p>
-                  <input value={destForm.name} onChange={(e) => setDestForm({ ...destForm, name: e.target.value })}
-                    maxLength={100} placeholder="Destination name (e.g. Vigan)" className={inputCls} />
-                  <input value={destForm.region} onChange={(e) => setDestForm({ ...destForm, region: e.target.value })}
-                    maxLength={100} placeholder="Region (Country), e.g. Ilocos Sur (Philippines)" className={inputCls} />
+                <div className="p-4 border border-blue-200 bg-blue-50/50 rounded-xl space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">New destination</p>
+                  <div>
+                    <div className="flex items-baseline justify-between mb-1">
+                      <p className={labelCls}>Name</p>
+                      <span className="text-xs text-slate-400">{destForm.name.length}/100</span>
+                    </div>
+                    <input value={destForm.name} onChange={(e) => setDestForm({ ...destForm, name: e.target.value })}
+                      maxLength={100} placeholder="Destination name (e.g. Vigan)" className={inputCls} />
+                  </div>
+                  <div>
+                    <div className="flex items-baseline justify-between mb-1">
+                      <p className={labelCls}>Region / Country</p>
+                      <span className="text-xs text-slate-400">{destForm.region.length}/100</span>
+                    </div>
+                    <input value={destForm.region} onChange={(e) => setDestForm({ ...destForm, region: e.target.value })}
+                      maxLength={100} placeholder="Ilocos Sur (Philippines)" className={inputCls} />
+                  </div>
                 </div>
               )}
 
               {mode === 'existing' && (
                 <div>
                   <p className={labelCls}>Destination (BR-012)</p>
-                  <div className="space-y-1 max-h-44 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50">
+                  <div className="space-y-1 max-h-52 overflow-y-auto border border-slate-200 rounded-xl p-2 bg-slate-50">
                     {destinations.map((d) => (
                       <label key={d.destination_id}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-sm ${
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition ${
                           form.destination_id === d.destination_id
-                            ? 'bg-purple-100 text-purple-900 font-medium'
-                            : 'hover:bg-gray-100 text-gray-700'
+                            ? 'bg-blue-50 text-blue-900 font-semibold ring-1 ring-blue-200'
+                            : 'hover:bg-white text-slate-700'
                         }`}>
                         <input type="radio" name="owner-destination"
                           checked={form.destination_id === d.destination_id}
                           onChange={() => setForm({ ...form, destination_id: d.destination_id })}
-                          className="accent-purple-600" />
+                          className="accent-blue-600" />
                         {d.destination_name} — {d.region_country}
                       </label>
                     ))}
@@ -288,7 +432,10 @@ export default function OwnerPage() {
                 </select>
               </div>
               <div>
-                <p className={labelCls}>Listing name</p>
+                <div className="flex items-baseline justify-between mb-1">
+                  <p className={labelCls}>Listing name</p>
+                  <span className="text-xs text-slate-400">{form.name.length}/50</span>
+                </div>
                 <input value={form.name} onChange={set('name')} maxLength={50} placeholder="e.g. Harbor View Inn" className={inputCls} required />
               </div>
               <div>
@@ -299,30 +446,45 @@ export default function OwnerPage() {
                 <textarea value={form.description} onChange={set('description')} rows={3} maxLength={300} placeholder="What makes this place worth visiting?" className={inputCls} />
               </div>
               <div>
-                <p className={labelCls}>Address</p>
+                <div className="flex items-baseline justify-between mb-1">
+                  <p className={labelCls}>Address</p>
+                  <span className="text-xs text-slate-400">{form.address.length}/150</span>
+                </div>
                 <input value={form.address} onChange={set('address')} maxLength={150} placeholder="Street, city" className={inputCls} />
               </div>
               {form.listing_type === 'Attraction' && (
                 <>
                   <div>
-                    <p className={labelCls}>Activity name</p>
+                    <div className="flex items-baseline justify-between mb-1">
+                      <p className={labelCls}>Activity name</p>
+                      <span className="text-xs text-slate-400">{form.activity_name.length}/100</span>
+                    </div>
                     <input value={form.activity_name} onChange={set('activity_name')} maxLength={100} placeholder="e.g. Heritage walk" className={inputCls} />
                   </div>
                   <div>
-                    <p className={labelCls}>Coordinates</p>
+                    <div className="flex items-baseline justify-between mb-1">
+                      <p className={labelCls}>Coordinates</p>
+                      <span className="text-xs text-slate-400">{form.coordinates.length}/50</span>
+                    </div>
                     <input value={form.coordinates} onChange={set('coordinates')} maxLength={50} placeholder="e.g. 17.57N, 120.38E" className={inputCls} />
                   </div>
                 </>
               )}
               {form.listing_type === 'Hotel' && (
                 <div>
-                  <p className={labelCls}>Star rating</p>
-                  <input value={form.star_rating} onChange={set('star_rating')} maxLength={20} placeholder="e.g. 4-star" className={inputCls} />
+                  <div className="flex items-baseline justify-between mb-1">
+                    <p className={labelCls}>Star rating</p>
+                    <span className="text-xs text-slate-400">{form.star_rating.length}/20</span>
+                  </div>
+                  <input value={form.star_rating} onChange={set('star_rating')} maxLength={20} placeholder="e.g. 4-Star" className={inputCls} />
                 </div>
               )}
               {form.listing_type === 'Restaurant' && (
                 <div>
-                  <p className={labelCls}>Cuisine type</p>
+                  <div className="flex items-baseline justify-between mb-1">
+                    <p className={labelCls}>Cuisine type</p>
+                    <span className="text-xs text-slate-400">{form.cuisine_type.length}/50</span>
+                  </div>
                   <input value={form.cuisine_type} onChange={set('cuisine_type')} maxLength={50} placeholder="e.g. Ilocano" className={inputCls} />
                 </div>
               )}
@@ -330,53 +492,106 @@ export default function OwnerPage() {
                 <div>
                   <p className={labelCls}>Cover photo</p>
                   <input type="file" accept="image/*" onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
-                    className="block w-full text-sm text-gray-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-purple-600 file:text-white file:cursor-pointer" />
+                    className="block w-full text-sm text-slate-500 file:mr-3 file:px-4 file:py-2 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer file:font-medium" />
                 </div>
               )}
-              <div className="flex gap-2 pt-1">
+              <div className="flex gap-2 pt-2">
                 <button type="submit" disabled={busy}
-                  className="flex-1 bg-purple-600 text-white py-3 rounded-lg font-medium hover:bg-purple-700 transition disabled:opacity-60">
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 active:bg-blue-800 transition disabled:opacity-60 shadow-sm">
                   {busy ? 'Saving…' : editing ? 'Save changes' : 'Publish listing'}
                 </button>
                 {editing && (
                   <button type="button" onClick={() => { setEditing(false); setForm(EMPTY); setMode('new'); }}
-                    className="px-4 py-3 border border-gray-300 rounded-lg text-sm">Cancel</button>
+                    className="px-4 py-3 border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:border-slate-400 transition">
+                    Cancel
+                  </button>
                 )}
               </div>
             </form>
           </section>
 
-          <section className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">My listings ({listings.length})</h2>
-            {listings.length === 0 && <p className="text-sm text-gray-500">You haven't published anything yet.</p>}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-                  <tr>
-                    <th className="px-3 py-2">ID</th>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2">Destination</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {listings.map((l) => (
-                    <tr key={l.listing_id} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 font-mono text-xs">{l.listing_id}</td>
-                      <td className="px-3 py-2 font-medium text-gray-900">{l.name}</td>
-                      <td className="px-3 py-2">{l.listing_type}</td>
-                      <td className="px-3 py-2 text-gray-500">{destNames[l.destination_id] ?? l.destination_id}</td>
-                      <td className="px-3 py-2 text-right space-x-2 whitespace-nowrap">
-                        <Link href={`/listing/${l.listing_id}`} className="text-gray-500 hover:underline">View</Link>
-                        <button onClick={() => startEdit(l)} className="text-blue-600 hover:underline">Edit</button>
-                        <button onClick={() => remove(l.listing_id)} className="text-red-600 hover:underline">Delete</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* RIGHT — listings */}
+          <section className="lg:col-span-2">
+            <div className="flex items-end justify-between mb-5">
+              <h2 className="text-xl font-bold text-slate-900">
+                My listings
+                <span className="ml-2 text-sm font-medium text-slate-400">({listings.length})</span>
+              </h2>
             </div>
+
+            {listings.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-sm">
+                <div className="w-16 h-16 mx-auto rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4">
+                  <Store className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">No listings yet</h3>
+                <p className="mt-2 text-sm text-slate-500 max-w-md mx-auto">
+                  Publish your first place using the form on the left. It will appear here and become visible to travelers on search.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {listings.map((l) => {
+                  const rating = l.average_rating != null ? Number(l.average_rating) : null;
+                  return (
+                    <div key={l.listing_id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition group">
+                      <div className="relative h-40 bg-slate-100">
+                        {l.image_url ? (
+                          <img src={l.image_url} alt={l.name} className="w-full h-40 object-cover transition duration-300 group-hover:scale-105" />
+                        ) : (
+                          <div className="w-full h-40 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+                            <span className="text-2xl font-bold text-slate-400">{l.listing_type.charAt(0)}</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+                        <span className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white/95 text-slate-700 shadow-sm">
+                          {l.listing_type}
+                        </span>
+                        {rating != null && (
+                          <span className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-1 rounded-full bg-black/60 backdrop-blur text-white text-[11px] font-semibold">
+                            <Star className="w-3 h-3 text-amber-400" filled />
+                            {rating.toFixed(1)}
+                          </span>
+                        )}
+                        <span className="absolute bottom-2.5 left-2.5 text-[11px] font-mono text-white/80">
+                          {l.listing_id}
+                        </span>
+                      </div>
+                      <div className="p-4">
+                        <p className="font-semibold text-slate-900 text-base truncate">{l.name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5 truncate">{destNames[l.destination_id] ?? l.destination_id}</p>
+                        {l.description && (
+                          <p className="text-xs text-slate-500 mt-2 line-clamp-2 leading-relaxed">{l.description}</p>
+                        )}
+                        <div className="mt-4 flex items-center gap-2">
+                          <Link
+                            href={`/listing/${l.listing_id}`}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition"
+                          >
+                            <EyeIcon />
+                            View
+                          </Link>
+                          <button
+                            onClick={() => startEdit(l)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition"
+                          >
+                            <EditIcon />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => remove(l.listing_id)}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition"
+                            aria-label={`Delete ${l.name}`}
+                          >
+                            <TrashIcon />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         </div>
       </div>
