@@ -79,13 +79,17 @@ export default function Navbar() {
             <span className="font-bold text-lg text-slate-900 tracking-tight">TravelMate</span>
           </Link>
           <div className="hidden md:flex items-center gap-6">
-            <Link href="/" className={linkCls}>Discover</Link>
+            <Link
+  href={role.isOwner || role.isAdmin ? '/business' : '/'}
+  className="text-sm font-medium text-slate-600 hover:text-slate-900 transition"
+>
+</Link>
             <Link href="/search" className={linkCls}>Search</Link>
           </div>
         </div>
 
         <div className="flex items-center gap-5">
-          {role.isOwner && <Link href="/owner" className={roleCls}>My Listings</Link>}
+          {role.isOwner && <Link href="/business" className={roleCls}>My Business</Link>}
           {role.isAdmin && (
             <>
               <Link href="/admin" className={roleCls}>Admin</Link>

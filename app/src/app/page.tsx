@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import Footer from '@/components/Footer';
 import SmartSearch from '@/components/SmartSearch';
+import { useRole } from '@/utils/supabase/role';
 
 type Rec = {
   recommendation_score: number;
@@ -179,6 +180,38 @@ function extractStopLabel(regionCountry: string | null): string | null {
 export default function HomePage() {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
+  const [routing, setRouting] = useState<boolean | null>(null);
+
+  // Owners, admins, and pending applicants get the Business Hub — never the traveler dashboard
+  useEffect(() => {
+    async function route() {
+      if (role.loading) return;
+      if (!role.authId) {
+        setRouting(false);
+        return;
+      }
+      if (role.isOwner || role.isAdmin) {
+        router.replace('/business');
+        return;
+      }
+      if (role.userId) {
+        const { data, error } = await supabase
+          .from('business_applications')
+          .select('status')
+          .eq('user_id', role.userId)
+          .limit(1);
+        const st = !error ? (data?.[0]?.status ?? null) : null;
+        if (st === 'pending') {
+          router.replace('/business');
+          return;
+        }
+      }
+      setRouting(false);
+    }
+    route();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role.loading, role.authId, role.isOwner, role.isAdmin, role.userId]);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [recs, setRecs] = useState<Rec[]>([]);
@@ -875,9 +908,17 @@ export default function HomePage() {
     .filter((l) => exploreType === 'All' || l.listing_type === exploreType)
     .sort(byRating);
 
+  if (role.authId && routing === null) {
+    return (
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-sm text-slate-400">Loading your dashboard…</p>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col">
-      <section className="bg-gradient-to-b from-blue-50/60 via-white to-white border-b border-slate-200">
+      {/* Hero */} <section className="bg-gradient-to-b from-blue-50/60 via-white to-white border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12">
           <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-slate-900">
             {greeting}

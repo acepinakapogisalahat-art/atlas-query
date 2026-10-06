@@ -773,14 +773,11 @@ function BookingModal({
       if (!checkIn || !checkOut) throw new Error('Please select check-in and check-out dates.');
       if (new Date(checkOut) <= new Date(checkIn)) throw new Error('Check-out must be after check-in.');
 
-      const { data: existing } = await supabase.from('bookings').select('booking_id');
-      const nums = (existing ?? [])
-        .map((r: any) => parseInt(String(r.booking_id).replace(/\D/g, ''), 10))
-        .filter((n: number) => !isNaN(n));
-      const nextId = `BKG-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`;
+      const { data: nextId, error: idErr } = await supabase.rpc('new_booking_id');
+      if (idErr) throw idErr;
 
       const { error } = await supabase.from('bookings').insert({
-        booking_id: nextId,
+        booking_id: nextId as string,
         listing_id: listingId,
         user_id: userId,
         check_in: checkIn,
