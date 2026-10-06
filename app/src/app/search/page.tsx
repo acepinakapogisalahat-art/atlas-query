@@ -3,9 +3,11 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { logSearch } from '@/utils/supabase/searchlog';
-import SearchDropdown from '@/components/SearchDropdown';
+import SmartSearch from '@/components/SmartSearch';
+
 type ListingRow = {
   listing_id: string;
   name: string;
@@ -19,15 +21,6 @@ type ListingRow = {
 
 const TABS = ['All', 'Attractions', 'Hotels', 'Restaurants'];
 
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-5 h-5'}>
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function Star({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className={className ?? 'w-4 h-4'}>
@@ -40,65 +33,48 @@ function CardImage({ listing }: { listing: ListingRow }) {
   const [failed, setFailed] = useState(false);
   const usable = !!listing.image_url && !failed;
   return usable ? (
-    <img
-      src={listing.image_url!}
-      alt={listing.name}
-      onError={() => setFailed(true)}
-      className="w-full h-full object-cover"
-    />
+    <img src={listing.image_url!} alt={listing.name} onError={() => setFailed(true)} className="w-full h-full object-cover" />
   ) : (
     <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-100 to-slate-200">
-      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-        {listing.listing_type}
-      </span>
+      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{listing.listing_type}</span>
     </div>
   );
 }
 
 export default function SearchPage() {
   const supabase = createClient();
-  const [query, setQuery] = useState('');
+  const searchParams = useSearchParams();
+  const q = (searchParams.get('q') ?? '').trim();
   const [tab, setTab] = useState('All');
   const [rows, setRows] = useState<ListingRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    async function loadUser() {
+    async function run() {
+      setLoading(true);
       const { data: session } = await supabase.auth.getSession();
       const authId = session.session?.user?.id ?? null;
+      let uid: string | null = null;
       if (authId) {
         const { data: profile } = await supabase
           .from('app_users')
           .select('user_id')
           .eq('auth_user_id', authId)
           .maybeSingle();
-        setUserId(profile?.user_id ?? null);
+        uid = profile?.user_id ?? null;
       }
-    }
-    loadUser();
-  }, []);
-
-  async function runSearch(keyword: string) {
-    setLoading(true);
-    const { data, error } = await supabase.rpc('search_listings', { keyword: keyword.trim() });
-    if (!error && Array.isArray(data)) {
-      const results = data as ListingRow[];
+      const { data, error } = await supabase.rpc('search_listings', { keyword: q });
+      if (error) console.error('search_listings error:', error);
+      const results = !error && Array.isArray(data) ? (data as ListingRow[]) : [];
       setRows(results);
-      await logSearch(supabase, userId, keyword, results.length, tab === 'All' ? null : tab.replace(/s$/, ''));
+      setLoading(false);
+      if (q) logSearch(supabase, uid, q, results.length, null);
     }
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get('q') ?? '';
-    setQuery(q);
-    runSearch(q);
+    run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [q]);
 
-  const visible =
-    tab === 'All' ? rows : rows.filter((r) => r.listing_type === tab.replace(/s$/, ''));
+  const visible = tab === 'All' ? rows : rows.filter((r) => r.listing_type === tab.replace(/s$/, ''));
 
   const chip = (active: boolean) =>
     `px-4 py-2 rounded-full text-sm font-medium border transition ${
@@ -110,32 +86,20 @@ export default function SearchPage() {
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 mb-2">Discover Destinations</h1>
-        <p className="text-sm text-slate-500 mb-8">
-          Search places, cities, or countries — even with typos like "jaan" for Japan.
-        </p>
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+              {q ? `Results for "${q}"` : 'Discover destinations'}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              {loading ? 'Searching…' : `${visible.length} place${visible.length === 1 ? '' : 's'} found`}
+            </p>
+          </div>
+        </div>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            runSearch(query);
-          }}
-          className="mb-8 flex flex-col md:flex-row gap-3"
-        >
-           <SearchDropdown
-            query={query}
-            onQueryChange={setQuery}
-            onSubmit={(q) => { setQuery(q); runSearch(q); }}
-            userId={userId}
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-8 py-3.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60"
-          >
-            {loading ? 'Searching…' : 'Search'}
-          </button>
-        </form>
+        <div className="flex justify-start mb-8">
+          <SmartSearch initialValue={q} placeholder='Refine your search — try "Japan" or "beach"' />
+        </div>
 
         <div className="flex items-center gap-2 mb-6 flex-wrap">
           {TABS.map((t) => (
@@ -143,9 +107,6 @@ export default function SearchPage() {
               {t}
             </button>
           ))}
-          <span className="ml-auto text-sm text-slate-400">
-            {visible.length} result{visible.length === 1 ? '' : 's'}
-          </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -182,7 +143,7 @@ export default function SearchPage() {
 
         {visible.length === 0 && !loading && (
           <div className="text-center py-16">
-            <p className="text-slate-500 mb-4">No listings found for "{query}"</p>
+            <p className="text-slate-500 mb-4">{q ? `No listings found for "${q}"` : 'Start by searching a place or country.'}</p>
             <Link href="/" className="text-sm font-medium text-blue-600 hover:text-blue-700 underline">
               Back to Discover
             </Link>

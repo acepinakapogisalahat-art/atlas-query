@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import Footer from '@/components/Footer';
-import SearchDropdown from '@/components/SearchDropdown';
+import SmartSearch from '@/components/SmartSearch';
+
 type Rec = {
   recommendation_score: number;
   recommendation_reason: string | null;
@@ -53,15 +54,6 @@ const FALLBACK_OUTLOOK: ForecastDay[] = [
   { day: 'Fri', temp: 24 },
 ];
 
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-5 h-5'}>
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function Star({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className={className ?? 'w-4 h-4'}>
@@ -106,11 +98,11 @@ export default function HomePage() {
   const [query, setQuery] = useState('');
   const [activity, setActivity] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
-    const [trips, setTrips] = useState<TripData[]>([]);
+  const [trips, setTrips] = useState<TripData[]>([]);
   const [showTripModal, setShowTripModal] = useState(false);
   const [descMap, setDescMap] = useState<Record<string, string>>({});
   const [subtypeMap, setSubtypeMap] = useState<Record<string, { label: string; value: string }>>({});
-    const [destExtra, setDestExtra] = useState<Record<string, { count: number; top: string[] }>>({});
+  const [destExtra, setDestExtra] = useState<Record<string, { count: number; top: string[] }>>({});
   const [hover, setHover] = useState<
     | { kind: 'listing'; id: string; rect: { top: number; bottom: number; left: number; width: number } }
     | { kind: 'destination'; name: string; rect: { top: number; bottom: number; left: number; width: number } }
@@ -118,7 +110,7 @@ export default function HomePage() {
   >(null);
   const hoverTimer = useRef<any>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  // Live 5-day forecast via Open-Meteo (no API key, CORS-friendly)
+
   async function loadForecast(loc: string | null) {
     if (!loc) {
       setForecast(FALLBACK_OUTLOOK);
@@ -171,7 +163,7 @@ export default function HomePage() {
           .eq('auth_user_id', authId)
           .maybeSingle();
         if (profile) {
-           uid = profile.user_id;
+          uid = profile.user_id;
           setUserId(profile.user_id);
           setFirstName(String(profile.name ?? '').split(' ')[0] || null);
         }
@@ -205,11 +197,10 @@ export default function HomePage() {
           if (q && !seen.includes(q)) seen.push(q);
         });
         setRecent(seen.slice(0, 5));
-      
         setTrips(await fetchTrips(uid));
       }
 
-            const [
+      const [
         { data: dests },
         { data: listings },
         { data: exploreRows },
@@ -226,7 +217,7 @@ export default function HomePage() {
         supabase.from('hotels').select('hotel_id, star_rating'),
         supabase.from('restaurants').select('restaurant_id, cuisine_type'),
       ]);
-           setExplore((exploreRows as unknown as ExploreCard[]) ?? []);
+      setExplore((exploreRows as unknown as ExploreCard[]) ?? []);
 
       const dDesc: Record<string, string> = {};
       const dExtra: Record<string, { count: number; top: string[] }> = {};
@@ -287,8 +278,7 @@ export default function HomePage() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
-  function goSearch(e?: React.FormEvent, q?: string) {
-    if (e) e.preventDefault();
+  function goSearch(q?: string) {
     const params = new URLSearchParams();
     const finalQuery = (q ?? query).trim();
     if (finalQuery) params.set('q', finalQuery);
@@ -322,7 +312,7 @@ export default function HomePage() {
       : { top: rect.bottom + 10, left, transform: 'translate(-50%, 0)' };
   }
 
-     async function fetchTrips(uid: string): Promise<TripData[]> {
+  async function fetchTrips(uid: string): Promise<TripData[]> {
     const { data: t } = await supabase
       .from('trips').select('*').eq('user_id', uid)
       .order('start_date', { ascending: false });
@@ -347,8 +337,6 @@ export default function HomePage() {
     }));
   }
 
- 
-
   const chip = (active: boolean) =>
     `px-3.5 py-1.5 rounded-full text-sm border transition ${
       active
@@ -356,7 +344,7 @@ export default function HomePage() {
         : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400 hover:text-slate-800'
     }`;
 
-    const hoverListing =
+  const hoverListing =
     hover?.kind === 'listing' ? explore.find((l) => l.listing_id === hover.id) ?? null : null;
   const hoverDest =
     hover?.kind === 'destination' ? trending.find((t) => t.name === hover.name) ?? null : null;
@@ -380,20 +368,9 @@ export default function HomePage() {
               : 'Explore hand-rated places around the world — or create a free account for personal picks.'}
           </p>
 
-                    <form onSubmit={goSearch} className="mt-8 flex flex-col md:flex-row gap-3">
-            <SearchDropdown
-              query={query}
-              onQueryChange={setQuery}
-              onSubmit={(q) => goSearch(undefined, q)}
-              userId={userId}
-            />
-            <button
-              type="submit"
-              className="px-8 py-3.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm"
-            >
-              Search
-            </button>
-          </form>
+          <div className="mt-8 flex justify-center">
+            <SmartSearch placeholder='Where to? Try "Japan", "Kyoto", or "Palawan"' />
+          </div>
 
           <div className="mt-6 grid grid-cols-[auto_1fr] items-center gap-x-5 gap-y-3">
             <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Activity</span>
@@ -421,7 +398,7 @@ export default function HomePage() {
                 <button
                   key={q}
                   type="button"
-                  onClick={() => goSearch(undefined, q)}
+                  onClick={() => goSearch(q)}
                   className="px-3 py-1 rounded-full text-xs border border-slate-200 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-800 transition"
                 >
                   {q}
@@ -432,65 +409,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Explore rail — full width */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-base font-semibold text-slate-900">Explore places</h2>
-            <span className="text-xs text-slate-400">{exploreList.length} live listings · scroll sideways</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {EXPLORE_TABS.map((t) => (
-              <button key={t} type="button" onClick={() => setExploreType(t)} className={chip(exploreType === t)}>
-                {t === 'All' ? 'All places' : `${t}s`}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="relative">
-          <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory">
-            {exploreList.map((l) => (
-                            <Link
-                key={l.listing_id}
-                href={`/listing/${l.listing_id}`}
-                onMouseEnter={(e) => startHover({ kind: 'listing', id: l.listing_id }, e.currentTarget)}
-                onMouseLeave={cancelHover}
-                className="w-64 shrink-0 snap-start bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition group"
-              >
-                <div className="relative h-40">
-                  {l.image_url ? (
-                    <img src={l.image_url} alt="" className="w-full h-40 object-cover" />
-                  ) : (
-                    <div className="w-full h-40 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{l.listing_type}</span>
-                    </div>
-                  )}
-                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/90 text-slate-700">
-                    {l.listing_type}
-                  </span>
-                </div>
-                <div className="p-4">
-                  <p className="font-semibold text-slate-900 truncate group-hover:text-blue-700 transition">{l.name}</p>
-                  <p className="text-xs text-slate-400 truncate mt-0.5">{l.destination?.region_country ?? '—'}</p>
-                  <div className="mt-2">
-                    {l.average_rating != null ? (
-                      <span className="flex items-center gap-1 text-sm font-semibold text-amber-600">
-                        <Star className="w-4 h-4" />
-                        {Number(l.average_rating).toFixed(1)}
-                      </span>
-                     ) : (
-                      <span className="text-xs font-medium text-slate-400">New · not rated yet</span>
-                    )}
-                  </div>
-                </div>
-              </Link>
-            ))}
-            {exploreList.length === 0 && <p className="text-sm text-slate-500 py-8">No listings of this type yet.</p>}
-          </div>
-          <div className="pointer-events-none absolute inset-y-0 right-0 bottom-4 w-16 bg-gradient-to-l from-slate-50 to-transparent" />
-        </div>
-      </section>
-
+      {/* Your trips — MOVED TO TOP as main feature */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
           <div className="flex items-baseline gap-3">
@@ -561,7 +480,66 @@ export default function HomePage() {
           </div>
         )}
       </section>
-      
+
+      {/* Explore rail — full width */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-base font-semibold text-slate-900">Explore places</h2>
+            <span className="text-xs text-slate-400">{exploreList.length} live listings · scroll sideways</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {EXPLORE_TABS.map((t) => (
+              <button key={t} type="button" onClick={() => setExploreType(t)} className={chip(exploreType === t)}>
+                {t === 'All' ? 'All places' : `${t}s`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="relative">
+          <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory">
+            {exploreList.map((l) => (
+              <Link
+                key={l.listing_id}
+                href={`/listing/${l.listing_id}`}
+                onMouseEnter={(e) => startHover({ kind: 'listing', id: l.listing_id }, e.currentTarget)}
+                onMouseLeave={cancelHover}
+                className="w-64 shrink-0 snap-start bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition group"
+              >
+                <div className="relative h-40">
+                  {l.image_url ? (
+                    <img src={l.image_url} alt="" className="w-full h-40 object-cover" />
+                  ) : (
+                    <div className="w-full h-40 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{l.listing_type}</span>
+                    </div>
+                  )}
+                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/90 text-slate-700">
+                    {l.listing_type}
+                  </span>
+                </div>
+                <div className="p-4">
+                  <p className="font-semibold text-slate-900 truncate group-hover:text-blue-700 transition">{l.name}</p>
+                  <p className="text-xs text-slate-400 truncate mt-0.5">{l.destination?.region_country ?? '—'}</p>
+                  <div className="mt-2">
+                    {l.average_rating != null ? (
+                      <span className="flex items-center gap-1 text-sm font-semibold text-amber-600">
+                        <Star className="w-4 h-4" />
+                        {Number(l.average_rating).toFixed(1)}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-400">New · not rated yet</span>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            ))}
+            {exploreList.length === 0 && <p className="text-sm text-slate-500 py-8">No listings of this type yet.</p>}
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 bottom-4 w-16 bg-gradient-to-l from-slate-50 to-transparent" />
+        </div>
+      </section>
+
       {/* Recommendations — 2x2 card grid */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
         <SectionHeader
@@ -574,7 +552,7 @@ export default function HomePage() {
             const pct = Math.round(Number(r.recommendation_score) * 100);
             return (
               <Link
-                               key={r.listing?.listing_id ?? i}
+                key={r.listing?.listing_id ?? i}
                 href={`/listing/${r.listing?.listing_id}`}
                 className="group relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200 transition flex flex-col"
               >
@@ -602,7 +580,7 @@ export default function HomePage() {
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="text-xs text-slate-400 truncate">{r.recommendation_reason ?? 'Community favorite'}</span>
                   <span className="flex items-center gap-1 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition whitespace-nowrap">
-                                        View place
+                    View place
                     <Chevron className="w-3.5 h-3.5" />
                   </span>
                 </div>
@@ -656,7 +634,6 @@ export default function HomePage() {
               Plan a trip
               <Chevron className="w-4 h-4 text-slate-300" />
             </button>
-           
             <Link
               href="/search"
               className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700 transition"
@@ -688,7 +665,7 @@ export default function HomePage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {trending.map((t, i) => (
             <Link
-                            key={t.name}
+              key={t.name}
               href={`/search?q=${encodeURIComponent(t.name)}`}
               className="group relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200 transition flex flex-col"
             >
@@ -702,7 +679,7 @@ export default function HomePage() {
               <p className="mt-3 font-semibold text-slate-900 leading-snug group-hover:text-blue-700 transition">{t.name}</p>
               <p className="mt-1 text-xs uppercase tracking-wider text-slate-400">{t.country}</p>
               <span className="mt-4 flex items-center gap-1 text-xs font-medium text-slate-400 group-hover:text-blue-600 transition">
-                                View listings
+                View listings
                 <Chevron className="w-3.5 h-3.5" />
               </span>
               <PlaceOverlay
@@ -719,8 +696,8 @@ export default function HomePage() {
           ))}
         </div>
       </section>
-        
-              {hover && (hoverListing || hoverDest) && (
+
+      {hover && (hoverListing || hoverDest) && (
         <div className="fixed z-50 w-80 pointer-events-none" style={popoverStyle(hover.rect)}>
           <div className="bg-white border border-slate-200 rounded-2xl shadow-xl p-4 flex flex-col gap-2">
             {hoverListing && (
@@ -803,7 +780,7 @@ export default function HomePage() {
           }}
         />
       )}
-      
+
       <Footer />
     </main>
   );
