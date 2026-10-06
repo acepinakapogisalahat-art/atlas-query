@@ -24,12 +24,14 @@ type BookingRow = {
   special_requests: string | null;
   status: string | null;
   booker_name?: string;
+  listing_name?: string;
+  listing_image?: string | null;
 };
 
 type ReviewRow = {
   review_id: string;
-  listing_id: string;
   user_id: string;
+  listing_id: string;
   rating: number;
   title: string | null;
   review_text: string | null;
@@ -73,7 +75,7 @@ function Store({ className }: { className?: string }) {
 
 function Calendar({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-4 h-4'}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-5 h-5'}>
       <rect x="3" y="5" width="18" height="16" rx="2" />
       <path d="M8 3v4M16 3v4M3 10h18" strokeLinecap="round" />
     </svg>
@@ -82,21 +84,31 @@ function Calendar({ className }: { className?: string }) {
 
 function SectionHeader({ title, helper }: { title: string; helper?: string }) {
   return (
-    <div className="flex items-baseline justify-between mb-4">
-      <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-      {helper && <span className="text-xs text-slate-400">{helper}</span>}
+    <div className="flex items-baseline justify-between mb-5">
+      <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+      {helper && <span className="text-sm text-slate-500">{helper}</span>}
     </div>
   );
 }
 
-function StatTile({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+function StatTile({ label, value, icon, trend }: { label: string; value: string; icon?: React.ReactNode; trend?: string }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm text-center">
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">{label}</p>
-      <p className="text-lg font-semibold text-slate-900 flex items-center justify-center gap-1.5">
-        {icon}
-        {value}
-      </p>
+    <div className="card-hover p-6">
+      <div className="flex items-start justify-between mb-3">
+        <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+          {icon}
+        </div>
+        {trend && (
+          <span className="badge-green">
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 11l4-4 4 4M6 7v10" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {trend}
+          </span>
+        )}
+      </div>
+      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">{label}</p>
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
     </div>
   );
 }
@@ -107,15 +119,10 @@ function fmtDate(d: string | null) {
 
 function statusChip(status: string | null) {
   const s = status ?? 'pending';
-  const cls =
-    s === 'confirmed'
-      ? 'bg-emerald-50 text-emerald-700'
-      : s === 'rejected'
-        ? 'bg-rose-50 text-rose-700'
-        : s === 'cancelled'
-          ? 'bg-slate-100 text-slate-600'
-          : 'bg-amber-50 text-amber-700';
-  return <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium capitalize ${cls}`}>{s}</span>;
+  if (s === 'confirmed') return <span className="badge-green">Confirmed</span>;
+  if (s === 'rejected') return <span className="badge-red">Rejected</span>;
+  if (s === 'cancelled') return <span className="badge-slate">Cancelled</span>;
+  return <span className="badge-amber">Pending</span>;
 }
 
 export default function BusinessPage() {
@@ -147,10 +154,11 @@ export default function BusinessPage() {
     const ids = own.map((l) => l.listing_id);
 
     if (ids.length) {
-      const { data: bk, error: bkErr } = await supabase
+      const { data: bk } = await supabase
         .from('bookings').select('*').in('listing_id', ids).order('booking_id', { ascending: false });
-      if (bkErr) console.error('bookings error:', bkErr);
       const rows = (bk ?? []) as BookingRow[];
+      
+      // Enrich with booker names and listing details
       const uids = [...new Set(rows.map((b) => b.user_id))];
       if (uids.length) {
         const { data: us } = await supabase.from('app_users').select('user_id, name').in('user_id', uids);
@@ -158,6 +166,14 @@ export default function BusinessPage() {
         (us ?? []).forEach((u: any) => { nm[u.user_id] = u.name; });
         rows.forEach((b) => { b.booker_name = nm[b.user_id] ?? 'Traveler'; });
       }
+      
+      const lm: Record<string, { name: string; image_url: string | null }> = {};
+      own.forEach((l) => { lm[l.listing_id] = { name: l.name, image_url: l.image_url }; });
+      rows.forEach((b) => {
+        b.listing_name = lm[b.listing_id]?.name;
+        b.listing_image = lm[b.listing_id]?.image_url;
+      });
+      
       setBookings(rows);
 
       const { data: rv } = await supabase
@@ -167,6 +183,7 @@ export default function BusinessPage() {
       const counts: Record<string, number> = {};
       revs.forEach((r) => { counts[r.listing_id] = (counts[r.listing_id] ?? 0) + 1; });
       setReviewCounts(counts);
+      
       const ruids = [...new Set(revs.map((r) => r.user_id))];
       if (ruids.length) {
         const { data: us2 } = await supabase.from('app_users').select('user_id, name').in('user_id', ruids);
@@ -177,9 +194,9 @@ export default function BusinessPage() {
       setReviews(revs.slice(0, 6));
     }
 
-    const { data: appRows, error: appErr } = await supabase
+    const { data: appRows } = await supabase
       .from('business_applications').select('*').eq('user_id', uid).limit(1);
-    if (!appErr) setApplication((appRows ?? [])[0] ?? null);
+    setApplication((appRows ?? [])[0] ?? null);
 
     setLoading(false);
   }
@@ -194,7 +211,10 @@ export default function BusinessPage() {
   if (role.loading || loading) {
     return (
       <main className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-sm text-slate-400">Loading your business…</p>
+        <div className="text-center">
+          <div className="w-12 h-12 mx-auto rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
+          <p className="mt-4 text-sm text-slate-500">Loading your business dashboard…</p>
+        </div>
       </main>
     );
   }
@@ -202,41 +222,43 @@ export default function BusinessPage() {
   if (!role.authId) {
     return (
       <main className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-md text-center shadow-sm">
-          <h1 className="text-2xl font-semibold text-slate-900 mb-2">Business hub</h1>
+        <div className="card p-8 max-w-md text-center">
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Business hub</h1>
           <p className="text-slate-500 text-sm">
-            <Link href="/login" className="text-blue-600 underline">Sign in</Link> to manage your listings, bookings, and reviews.
+            <Link href="/login" className="text-blue-600 underline hover:text-blue-700">Sign in</Link> to manage your listings, bookings, and reviews.
           </p>
         </div>
       </main>
     );
   }
 
-  if (!role.isOwner) {
+  const isManager = role.isOwner || role.isAdmin;
+
+  if (!isManager) {
     const appStatus = application?.status ?? null;
     return (
       <main className="min-h-screen bg-slate-50 flex items-center justify-center p-8">
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-md text-center shadow-sm">
+        <div className="card p-8 max-w-md text-center">
           <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center">
             <Store className="w-7 h-7" />
           </div>
-          <h1 className="mt-4 text-2xl font-semibold text-slate-900">
+          <h1 className="mt-4 text-2xl font-bold text-slate-900">
             {appStatus === 'pending' ? 'Application under review' : 'Publisher access required'}
           </h1>
           <p className="mt-2 text-sm text-slate-500">
             {appStatus === 'pending'
-              ? 'Your business owner application is being reviewed by our administrators. You will get full business tools once approved.'
+              ? 'Your business owner application is being reviewed. You will get full business tools once approved.'
               : appStatus === 'rejected'
                 ? 'Your previous application was not approved. You may submit a new application with updated details.'
                 : 'The business hub is for approved business owners. Apply to list your place on TravelMate.'}
           </p>
           <div className="mt-6 flex justify-center gap-3">
             {appStatus !== 'pending' && (
-              <Link href="/apply" className="px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition shadow-sm">
+              <Link href="/apply" className="btn-primary">
                 {appStatus === 'rejected' ? 'Reapply now' : 'Apply now'}
               </Link>
             )}
-            <Link href="/" className="px-6 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition">
+            <Link href="/" className="btn-secondary">
               Back to Discover
             </Link>
           </div>
@@ -259,26 +281,26 @@ export default function BusinessPage() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Business hub</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Business hub</h1>
             <p className="mt-1 text-sm text-slate-500">
               {role.isAdmin
-                ? 'Platform-wide bookings, reviews, and listing performance.'
-                : 'Bookings, reviews, and performance across your listings.'}
+                ? 'Platform-wide bookings, reviews, and listing performance'
+                : 'Bookings, reviews, and performance across your listings'}
             </p>
           </div>
           <div className="flex items-center gap-3">
             {role.isAdmin ? (
-              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-900 text-white">
+              <span className="badge bg-slate-900 text-white">
                 Administrator · platform-wide view
               </span>
             ) : (
-              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+              <span className="badge-blue">
                 Approved publisher{role.ownerId ? ` · ${role.ownerId}` : ''}
               </span>
             )}
             <Link
               href={role.isAdmin ? '/admin' : '/owner'}
-              className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm"
+              className="btn-primary"
             >
               {role.isAdmin ? 'Admin manager' : 'Manage listings'}
             </Link>
@@ -286,100 +308,139 @@ export default function BusinessPage() {
         </div>
 
         {/* Stat strip */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
-          <StatTile label="Active listings" value={String(listings.length)} icon={<Store className="w-5 h-5 text-slate-400" />} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <StatTile 
+            label="Active listings" 
+            value={String(listings.length)} 
+            icon={<Store className="w-6 h-6" />} 
+          />
           <StatTile
             label="Average rating"
             value={avgAll != null ? avgAll.toFixed(1) : '—'}
-            icon={avgAll != null ? <Star className="w-5 h-5 text-amber-500" filled /> : undefined}
+            icon={avgAll != null ? <Star className="w-6 h-6 text-amber-500" filled /> : <Star className="w-6 h-6" />}
           />
-          <StatTile label="Total reviews" value={String(reviewCount)} />
-          <StatTile label="Pending requests" value={String(pending.length)} icon={<Calendar className="w-5 h-5 text-amber-500" />} />
+          <StatTile 
+            label="Total reviews" 
+            value={String(reviewCount)}
+            icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+              <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>}
+          />
+          <StatTile 
+            label="Pending requests" 
+            value={String(pending.length)} 
+            icon={<Calendar className="w-6 h-6" />}
+          />
         </div>
 
         {/* Bookings | Reviews */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10 items-start">
-          <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <SectionHeader title="Booking requests" helper={`${confirmed.length} confirmed · ${pending.length} pending`} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-start">
+          <section className="card p-6">
+            <SectionHeader 
+              title="Booking requests" 
+              helper={`${confirmed.length} confirmed · ${pending.length} pending`} 
+            />
             {bookings.length === 0 ? (
-              <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-4 py-8 text-center">
-                No booking requests yet — they appear here the moment travelers request dates.
-              </p>
+              <div className="text-center py-12">
+                <div className="w-16 h-16 mx-auto rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
+                  <Calendar className="w-8 h-8" />
+                </div>
+                <p className="text-sm text-slate-500">
+                  No booking requests yet. They appear here when travelers request dates.
+                </p>
+              </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {bookings.map((b) => (
-                  <div key={b.booking_id} className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-slate-900 text-sm truncate">
-                          {listingMap.get(b.listing_id)?.name ?? b.listing_id}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {b.booker_name ?? 'Traveler'} · {b.guests ?? 1} guest{(b.guests ?? 1) === 1 ? '' : 's'}
-                        </p>
+                  <div key={b.booking_id} className="card-hover p-4">
+                    <div className="flex gap-4">
+                      <div className="shrink-0">
+                        {b.listing_image ? (
+                          <img src={b.listing_image} alt="" className="w-20 h-20 rounded-xl object-cover" />
+                        ) : (
+                          <div className="w-20 h-20 rounded-xl bg-slate-100 flex items-center justify-center">
+                            <Store className="w-8 h-8 text-slate-400" />
+                          </div>
+                        )}
                       </div>
-                      {statusChip(b.status)}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900 truncate">{b.listing_name ?? b.listing_id}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {b.booker_name ?? 'Traveler'} · {b.guests ?? 1} guest{(b.guests ?? 1) === 1 ? '' : 's'}
+                            </p>
+                          </div>
+                          {statusChip(b.status)}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-slate-600 mb-2">
+                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <span>{fmtDate(b.check_in)} → {fmtDate(b.check_out)}</span>
+                        </div>
+                        {b.special_requests && (
+                          <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2 line-clamp-2">
+                            "{b.special_requests}"
+                          </p>
+                        )}
+                        {(b.status ?? 'pending') === 'pending' && (
+                          <div className="flex gap-2 mt-3">
+                            <button
+                              type="button"
+                              onClick={() => decide(b.booking_id, 'confirmed')}
+                              disabled={busyId === b.booking_id}
+                              className="btn-primary flex-1"
+                            >
+                              <Check className="w-4 h-4" />
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => decide(b.booking_id, 'rejected')}
+                              disabled={busyId === b.booking_id}
+                              className="btn-secondary flex-1"
+                            >
+                              <Close className="w-4 h-4" />
+                              Decline
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <p className="mt-2 text-xs text-slate-500">
-                      {fmtDate(b.check_in)} → {fmtDate(b.check_out)}
-                    </p>
-                    {b.special_requests && (
-                      <p className="mt-2 text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2 line-clamp-2">
-                        "{b.special_requests}"
-                      </p>
-                    )}
-                    {(b.status ?? 'pending') === 'pending' && (
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          type="button"
-                          onClick={() => decide(b.booking_id, 'confirmed')}
-                          disabled={busyId === b.booking_id}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 transition disabled:opacity-60"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => decide(b.booking_id, 'rejected')}
-                          disabled={busyId === b.booking_id}
-                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 hover:border-rose-300 hover:text-rose-700 transition disabled:opacity-60"
-                        >
-                          <Close className="w-3.5 h-3.5" />
-                          Decline
-                        </button>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
             )}
           </section>
 
-          <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <section className="card p-6">
             <SectionHeader title="Recent reviews" helper={`${reviewCount} total`} />
             {reviews.length === 0 ? (
-              <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-4 py-8 text-center">
-                No reviews yet on your listings.
-              </p>
+              <div className="text-center py-12">
+                <div className="w-16 h-16 mx-auto rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
+                  <Star className="w-8 h-8" />
+                </div>
+                <p className="text-sm text-slate-500">
+                  No reviews yet on your listings.
+                </p>
+              </div>
             ) : (
               <div className="space-y-4">
                 {reviews.map((r) => (
                   <div key={r.review_id} className="border-b border-slate-100 pb-4 last:border-0 last:pb-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium text-slate-900 text-sm truncate">{r.user_name}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-slate-900 text-sm">{r.user_name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
                           on {listingMap.get(r.listing_id)?.name ?? r.listing_id} · {fmtDate(r.submission_date)}
                         </p>
                       </div>
-                      <span className="flex items-center gap-1 shrink-0 text-sm font-semibold text-amber-600">
-                        <Star className="w-4 h-4" filled />
-                        {Number(r.rating).toFixed(1)}
-                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Star className="w-4 h-4 text-amber-500" filled />
+                        <span className="text-sm font-bold text-slate-900">{Number(r.rating).toFixed(1)}</span>
+                      </div>
                     </div>
-                    {r.title && <p className="mt-2 text-sm font-medium text-slate-800">{r.title}</p>}
-                    <p className="mt-1 text-sm text-slate-600 leading-relaxed line-clamp-3">{r.review_text}</p>
+                    {r.title && <p className="font-medium text-slate-800 text-sm mb-1">{r.title}</p>}
+                    <p className="text-sm text-slate-600 leading-relaxed line-clamp-3">{r.review_text}</p>
                   </div>
                 ))}
               </div>
@@ -391,42 +452,39 @@ export default function BusinessPage() {
         <section>
           <SectionHeader title="Your listings" helper={`${listings.length} live`} />
           {listings.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-2xl p-10 shadow-sm text-center">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Store className="w-7 h-7" />
+            <div className="card p-10 text-center">
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4">
+                <Store className="w-8 h-8" />
               </div>
-              <h3 className="mt-4 text-lg font-semibold text-slate-900">No listings yet</h3>
-              <p className="mt-1 text-sm text-slate-500 max-w-md mx-auto">
+              <h3 className="text-lg font-bold text-slate-900 mb-2">No listings yet</h3>
+              <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
                 Publish your first place to start receiving bookings and reviews.
               </p>
-              <Link
-                href="/owner"
-                className="inline-block mt-6 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition shadow-sm"
-              >
+              <Link href="/owner" className="btn-primary">
                 Publish a listing
               </Link>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {listings.map((l) => (
-                <div key={l.listing_id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition">
-                  <div className="relative h-32 bg-slate-200">
+                <div key={l.listing_id} className="card-hover overflow-hidden">
+                  <div className="relative h-40 bg-slate-200">
                     {l.image_url ? (
-                      <img src={l.image_url} alt="" className="w-full h-32 object-cover" />
+                      <img src={l.image_url} alt="" className="w-full h-40 object-cover" />
                     ) : (
-                      <div className="w-full h-32 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{l.listing_type}</span>
+                      <div className="w-full h-40 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
+                        <span className="text-sm font-semibold uppercase tracking-wider text-slate-400">{l.listing_type}</span>
                       </div>
                     )}
-                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-white/90 text-slate-700">
+                    <span className="absolute top-3 left-3 badge bg-white/95 text-slate-700 backdrop-blur-sm shadow-sm">
                       {l.listing_type}
                     </span>
                   </div>
-                  <div className="p-4">
-                    <p className="font-semibold text-slate-900 truncate">{l.name}</p>
-                    <div className="mt-2 flex items-center gap-4 text-xs text-slate-500">
+                  <div className="p-5">
+                    <h3 className="font-semibold text-slate-900 mb-3 truncate">{l.name}</h3>
+                    <div className="flex items-center gap-4 text-sm text-slate-600 mb-3">
                       <span className="flex items-center gap-1 font-semibold text-amber-600">
-                        <Star className="w-3.5 h-3.5" filled />
+                        <Star className="w-4 h-4" filled />
                         {l.average_rating != null ? Number(l.average_rating).toFixed(1) : 'New'}
                       </span>
                       <span>{reviewCounts[l.listing_id] ?? 0} reviews</span>
@@ -434,9 +492,12 @@ export default function BusinessPage() {
                     </div>
                     <Link
                       href={`/listing/${l.listing_id}`}
-                      className="mt-3 inline-block text-xs font-medium text-blue-600 hover:text-blue-700"
+                      className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700 transition"
                     >
-                      View public page →
+                      View public page
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </Link>
                   </div>
                 </div>
