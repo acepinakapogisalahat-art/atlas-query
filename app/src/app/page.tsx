@@ -51,6 +51,7 @@ type TripData = {
   trip_name: string | null;
   start_date: string | null;
   end_date: string | null;
+  status: string | null;
   stops: { label: string; days: number }[];
   items: TripItem[];
 };
@@ -117,6 +118,30 @@ function CloseIcon({ className }: { className?: string }) {
   );
 }
 
+function EditIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-3.5 h-3.5'}>
+      <path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={className ?? 'w-3.5 h-3.5'}>
+      <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronDown({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className ?? 'w-4 h-4'}>
+      <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function SectionHeader({ title, helper }: { title: string; helper: string }) {
   return (
     <div className="flex items-baseline justify-between mb-4">
@@ -126,13 +151,29 @@ function SectionHeader({ title, helper }: { title: string; helper: string }) {
   );
 }
 
-function isUpcoming(t: { end_date: string | null }) {
+function getTripStatus(t: { start_date: string | null; end_date: string | null; status: string | null }): string {
+  if (t.status && ['upcoming', 'ongoing', 'finished'].includes(t.status)) return t.status;
   const today = new Date().toISOString().slice(0, 10);
-  return t.end_date ? t.end_date >= today : true;
+  if (!t.start_date || !t.end_date) return 'upcoming';
+  if (t.end_date < today) return 'finished';
+  if (t.start_date <= today && t.end_date >= today) return 'ongoing';
+  return 'upcoming';
 }
 
 function fmtDate(d: string | null) {
   return d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+}
+
+function extractStopLabel(regionCountry: string | null): string | null {
+  if (!regionCountry) return null;
+  let cleaned = regionCountry.replace(/[()]/g, '').trim();
+  cleaned = cleaned
+    .replace(/\s+(Philippines|PH|Pilipinas|Japan|JP|Australia|AU|USA|US|Canada|CA|United Kingdom|UK|Thailand|South Korea|Korea|Vietnam|Indonesia|Malaysia|Singapore|China|India|France|Italy|Spain|Germany|Switzerland|New Zealand|NZ)$/i, '')
+    .trim();
+  const parts = cleaned.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  if (parts.length >= 2) return parts[parts.length - 2] || parts[0];
+  return parts[0];
 }
 
 export default function HomePage() {
@@ -152,10 +193,11 @@ export default function HomePage() {
   const [activity, setActivity] = useState<string | null>(null);
   const [budget, setBudget] = useState<string | null>(null);
 
-  // Planner state
   const [trips, setTrips] = useState<TripData[]>([]);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [showTripModal, setShowTripModal] = useState(false);
+  const [showEditTripModal, setShowEditTripModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [plannerQuery, setPlannerQuery] = useState('');
   const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [addingId, setAddingId] = useState<string | null>(null);
@@ -168,6 +210,7 @@ export default function HomePage() {
   const [destSearch, setDestSearch] = useState('');
   const [allDests, setAllDests] = useState<{ destination_name: string; region_country: string }[]>([]);
   const [schedMap, setSchedMap] = useState<Record<string, { open: string; close: string }>>({});
+  const [setupCollapsed, setSetupCollapsed] = useState(false);
 
   const [descMap, setDescMap] = useState<Record<string, string>>({});
   const [subtypeMap, setSubtypeMap] = useState<Record<string, { label: string; value: string }>>({});
@@ -267,6 +310,7 @@ export default function HomePage() {
       trip_name: r.trip_name ?? r.name ?? null,
       start_date: r.start_date ?? null,
       end_date: r.end_date ?? null,
+      status: r.status ?? null,
       stops: Array.isArray(r.stops) ? (r.stops as { label: string; days: number }[]) : [],
       items: map[r.trip_id] ?? [],
     }));
@@ -425,7 +469,6 @@ export default function HomePage() {
     router.push(`/search?${params.toString()}`);
   }
 
-  // ---- Planner actions ----
   async function createTrip(name: string, start: string, end: string): Promise<string> {
     if (!name.trim()) throw new Error('Give your trip a name.');
     if (start && end && end < start) throw new Error('End date must be after the start date.');
@@ -457,6 +500,29 @@ export default function HomePage() {
     setStartBusy(false);
   }
 
+  async function updateTripStatus(status: string) {
+    const trip = selectedTrip;
+    if (!trip) return;
+    const { error } = await supabase.from('trips').update({ status }).eq('trip_id', trip.trip_id);
+    if (error) setPlannerErr(error.message);
+    else await refreshTrips();
+  }
+
+  async function deleteTrip(tripId: string) {
+    const { error: itemsErr } = await supabase.from('trip_items').delete().eq('trip_id', tripId);
+    if (itemsErr) {
+      setPlannerErr(itemsErr.message);
+      return;
+    }
+    const { error } = await supabase.from('trips').delete().eq('trip_id', tripId);
+    if (error) setPlannerErr(error.message);
+    else {
+      await refreshTrips();
+      setShowDeleteConfirm(null);
+      if (selectedTripId === tripId) setSelectedTripId(null);
+    }
+  }
+
   async function addItem(listingId: string) {
     const trip = selectedTrip;
     if (!trip) return;
@@ -470,6 +536,18 @@ export default function HomePage() {
             : 'Starter limit reached (6 places). Set trip dates to unlock more slots.'
         );
       }
+
+      // Auto-create stop if no stops exist
+      if (trip.stops.length === 0) {
+        const listing = addList.find((l) => l.listing_id === listingId);
+        if (listing) {
+          const stopLabel = extractStopLabel(listing.destination?.region_country ?? null);
+          if (stopLabel) {
+            await saveStops([{ label: stopLabel, days: tripDays ?? 1 }]);
+          }
+        }
+      }
+
       const { error } = await supabase.from('trip_items').insert({
         trip_item_id: `ITI-${Date.now().toString().slice(-8)}`,
         trip_id: trip.trip_id,
@@ -752,6 +830,12 @@ export default function HomePage() {
 
   const addList = plannerMatches.length > 0 ? plannerMatches : suggestions;
 
+  useEffect(() => {
+    if (selectedTrip && selectedTrip.stops.length > 0 && selectedTrip.items.length > 0 && plannedDates.length > 0) {
+      setSetupCollapsed(true);
+    }
+  }, [selectedTrip?.trip_id, plannedDates.length]);
+
   function startHover(
     payload: { kind: 'listing'; id: string } | { kind: 'destination'; name: string },
     el: HTMLElement
@@ -793,7 +877,6 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Hero */}
       <section className="bg-gradient-to-b from-blue-50/60 via-white to-white border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12">
           <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-slate-900">
@@ -847,9 +930,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* TRIP PLANNER */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 w-full">
-        <SectionHeader title="Trip planner"/>
+        <SectionHeader title="Trip planner" helper="Dates, itineraries, and smart place suggestions" />
 
         {!userId ? (
           <div className="bg-white border border-slate-200 rounded-2xl p-10 shadow-sm text-center">
@@ -879,13 +961,16 @@ export default function HomePage() {
                 Create a trip, pick your dates, and we'll suggest the best-rated places to fill your itinerary.
               </p>
               <form onSubmit={handleStartCreate} className="mt-6 grid grid-cols-1 md:grid-cols-[1fr_170px_170px_auto] gap-3">
-                <input
-                  value={startName}
-                  onChange={(e) => setStartName(e.target.value)}
-                  maxLength={100}
-                  placeholder="Trip name — e.g., Japan Spring Adventure"
-                  className="px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-blue-200 focus:ring-2 focus:ring-white/60 outline-none transition"
-                />
+                <div>
+                  <input
+                    value={startName}
+                    onChange={(e) => setStartName(e.target.value)}
+                    maxLength={100}
+                    placeholder="Trip name — e.g., Japan Spring Adventure"
+                    className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-blue-200 focus:ring-2 focus:ring-white/60 outline-none transition"
+                  />
+                  <p className="text-xs text-blue-200 mt-1 text-right">{startName.length}/100</p>
+                </div>
                 <input
                   type="date"
                   value={startDate}
@@ -916,26 +1001,52 @@ export default function HomePage() {
             <div className="space-y-3">
               {trips.map((t) => {
                 const sel = selectedTrip?.trip_id === t.trip_id;
+                const status = getTripStatus(t);
                 return (
-                  <button
-                    key={t.trip_id}
-                    type="button"
-                    onClick={() => setSelectedTripId(t.trip_id)}
-                    className={`w-full text-left rounded-2xl border p-4 transition ${
-                      sel
-                        ? 'border-blue-600 bg-blue-50/60 ring-1 ring-blue-600 shadow-sm'
-                        : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="font-semibold text-slate-900 truncate">{t.trip_name ?? `Trip ${t.trip_id}`}</p>
-                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold ${isUpcoming(t) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                        {isUpcoming(t) ? 'Upcoming' : 'Done'}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-400">{fmtDate(t.start_date)} → {fmtDate(t.end_date)}</p>
-                    <p className="mt-1 text-xs text-slate-500">{t.items.length} place{t.items.length === 1 ? '' : 's'}</p>
-                  </button>
+                  <div key={t.trip_id} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTripId(t.trip_id)}
+                      className={`w-full text-left rounded-2xl border p-4 transition ${
+                        sel
+                          ? 'border-blue-600 bg-blue-50/60 ring-1 ring-blue-600 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-slate-900 truncate">{t.trip_name ?? `Trip ${t.trip_id}`}</p>
+                        <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                          status === 'finished' ? 'bg-slate-100 text-slate-600' :
+                          status === 'ongoing' ? 'bg-blue-50 text-blue-700' :
+                          'bg-emerald-50 text-emerald-700'
+                        }`}>
+                          {status === 'finished' ? 'Finished' : status === 'ongoing' ? 'Ongoing' : 'Upcoming'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">{fmtDate(t.start_date)} → {fmtDate(t.end_date)}</p>
+                      <p className="mt-1 text-xs text-slate-500">{t.items.length} place{t.items.length === 1 ? '' : 's'}</p>
+                    </button>
+                    {sel && (
+                      <div className="flex gap-1 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowEditTripModal(true)}
+                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition"
+                        >
+                          <EditIcon className="w-3 h-3" />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowDeleteConfirm(t.trip_id)}
+                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-red-700 hover:bg-red-50 transition"
+                        >
+                          <TrashIcon className="w-3 h-3" />
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
               <button
@@ -952,27 +1063,23 @@ export default function HomePage() {
               <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
                 <div>
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <h3 className="text-lg font-semibold text-slate-900">{selectedTrip.trip_name ?? `Trip ${selectedTrip.trip_id}`}</h3>
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${isUpcoming(selectedTrip) ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
-                      {isUpcoming(selectedTrip) ? 'Upcoming' : 'Completed'}
-                    </span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <input
-                      type="date"
-                      value={selectedTrip.start_date ?? ''}
-                      max={selectedTrip.end_date || undefined}
-                      onChange={(e) => updateTripDates(e.target.value, selectedTrip.end_date ?? '')}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-600 focus:ring-2 focus:ring-blue-600 outline-none transition"
-                    />
-                    <span className="text-xs text-slate-400">→</span>
-                    <input
-                      type="date"
-                      value={selectedTrip.end_date ?? ''}
-                      min={selectedTrip.start_date || undefined}
-                      onChange={(e) => updateTripDates(selectedTrip.start_date ?? '', e.target.value)}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-600 focus:ring-2 focus:ring-blue-600 outline-none transition"
-                    />
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg font-semibold text-slate-900">{selectedTrip.trip_name ?? `Trip ${selectedTrip.trip_id}`}</h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <select
+                          value={getTripStatus(selectedTrip)}
+                          onChange={(e) => updateTripStatus(e.target.value)}
+                          className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-blue-600 outline-none transition"
+                        >
+                          <option value="upcoming">Upcoming</option>
+                          <option value="ongoing">Ongoing</option>
+                          <option value="finished">Finished</option>
+                        </select>
+                        <span className="text-xs text-slate-400">
+                          {fmtDate(selectedTrip.start_date)} → {fmtDate(selectedTrip.end_date)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                   <div className="mt-3 flex items-center gap-2">
                     <div className="h-1.5 w-32 bg-slate-100 rounded-full overflow-hidden">
@@ -990,142 +1097,179 @@ export default function HomePage() {
                 {plannerErr && <p className="mt-3 bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-2.5 text-sm">{plannerErr}</p>}
 
                 <div className="mt-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Destination stops</h4>
-                    <button
-                      type="button"
-                      onClick={() => setDestPickerOpen(true)}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition"
-                    >
-                      <PlusIcon className="w-3 h-3" />
-                      Add stop
-                    </button>
-                  </div>
-                  {tripStops.length === 0 ? (
-                    <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
-                      No stops yet | add a province, city, or country (e.g., "La Union") to scope place suggestions.
-                    </p>
-                  ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSetupCollapsed(!setupCollapsed)}
+                    className="w-full flex items-center justify-between py-2 text-left group"
+                  >
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Trip setup</h4>
+                    <ChevronDown className={`w-4 h-4 text-slate-400 transition ${setupCollapsed ? '-rotate-90' : ''}`} />
+                  </button>
+                  
+                  {!setupCollapsed && (
                     <>
-                      <div className="space-y-2">
-                        {tripStops.map((s) => (
-                          <div key={s.label} className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-slate-900 text-sm truncate">{s.label}</p>
-                              <p className="text-[11px] text-slate-400 truncate">
-                                {stopItemCount(s.label)} of your places fall inside this stop
-                              </p>
-                            </div>
-                            <label className="text-xs text-slate-500 shrink-0">Days</label>
-                            <input
-                              type="number"
-                              min={1}
-                              max={tripDays ?? 60}
-                              value={s.days}
-                              onChange={(e) => setStopDays(s.label, parseInt(e.target.value) || 1)}
-                              className="w-16 px-2 py-1 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none transition"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => removeStop(s.label)}
-                              aria-label={`Remove ${s.label}`}
-                              className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition flex items-center justify-center"
-                            >
-                              <CloseIcon className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          value={selectedTrip.start_date ?? ''}
+                          max={selectedTrip.end_date || undefined}
+                          onChange={(e) => updateTripDates(e.target.value, selectedTrip.end_date ?? '')}
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-600 focus:ring-2 focus:ring-blue-600 outline-none transition"
+                        />
+                        <span className="text-xs text-slate-400">→</span>
+                        <input
+                          type="date"
+                          value={selectedTrip.end_date ?? ''}
+                          min={selectedTrip.start_date || undefined}
+                          onChange={(e) => updateTripDates(selectedTrip.start_date ?? '', e.target.value)}
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs text-slate-600 focus:ring-2 focus:ring-blue-600 outline-none transition"
+                        />
                       </div>
-                      {tripDays != null && totalAllocated !== tripDays && (
-                        <p className="mt-2 text-xs text-amber-600">
-                          Allocated days ({totalAllocated}) don't match trip length ({tripDays}) — the planner follows your allocation.
-                        </p>
-                      )}
+
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Destination stops</h4>
+                          <button
+                            type="button"
+                            onClick={() => setDestPickerOpen(true)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition"
+                          >
+                            <PlusIcon className="w-3 h-3" />
+                            Add stop
+                          </button>
+                        </div>
+                        {tripStops.length === 0 ? (
+                          <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
+                            No stops yet — add a province, city, or country (e.g., "La Union") to scope place suggestions.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="space-y-2">
+                              {tripStops.map((s) => (
+                                <div key={s.label} className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-medium text-slate-900 text-sm truncate">{s.label}</p>
+                                    <p className="text-[11px] text-slate-400 truncate">
+                                      {stopItemCount(s.label)} of your places fall inside this stop
+                                    </p>
+                                  </div>
+                                  <label className="text-xs text-slate-500 shrink-0">Days</label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={tripDays ?? 60}
+                                    value={s.days}
+                                    onChange={(e) => setStopDays(s.label, parseInt(e.target.value) || 1)}
+                                    className="w-16 px-2 py-1 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 outline-none transition"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeStop(s.label)}
+                                    aria-label={`Remove ${s.label}`}
+                                    className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition flex items-center justify-center"
+                                  >
+                                    <CloseIcon className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            {tripDays != null && totalAllocated !== tripDays && (
+                              <p className="mt-2 text-xs text-amber-600">
+                                Allocated days ({totalAllocated}) don't match trip length ({tripDays}) — the planner follows your allocation.
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Itinerary</h4>
+                          {selectedTrip.items.length === 0 ? (
+                            <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
+                              No places yet — add some from the right.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {selectedTrip.items.map((it, idx) => (
+                                <div key={it.key} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 bg-white">
+                                  <span className="w-6 h-6 shrink-0 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center">
+                                    {idx + 1}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <Link href={`/listing/${it.listing_id}`} className="block font-medium text-slate-800 text-sm truncate hover:text-blue-700 transition">
+                                      {it.name}
+                                    </Link>
+                                    {it.destination_name && <p className="text-[11px] text-slate-400 truncate">{it.destination_name}</p>}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeItem(it)}
+                                    aria-label={`Remove ${it.name}`}
+                                    className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition flex items-center justify-center"
+                                  >
+                                    <CloseIcon className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                            {plannerMatches.length > 0 ? 'Search results' : 'Suggested for this trip'}
+                          </h4>
+                          <div>
+                            <input
+                              value={plannerQuery}
+                              onChange={(e) => setPlannerQuery(e.target.value)}
+                              maxLength={50}
+                              placeholder="Add any place — type to search…"
+                              className="w-full px-4 py-2.5 mb-1 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                            />
+                            <p className="text-xs text-slate-400 text-right mb-3">{plannerQuery.length}/50</p>
+                          </div>
+                          <div className="space-y-2">
+                            {addList.length === 0 && (
+                              <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
+                                Nothing matches — try another keyword.
+                              </p>
+                            )}
+                            {addList.map((l) => (
+                              <div key={l.listing_id} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5">
+                                {l.image_url ? (
+                                  <img src={l.image_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                                ) : (
+                                  <div className="w-10 h-10 rounded-lg bg-slate-100 shrink-0" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-slate-800 text-sm truncate">{l.name}</p>
+                                  <p className="text-[11px] text-slate-400 truncate">
+                                    {l.destination?.destination_name}
+                                    {l.average_rating != null ? ` · ★ ${Number(l.average_rating).toFixed(1)}` : ''}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => addItem(l.listing_id)}
+                                  disabled={addingId === l.listing_id}
+                                  className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition disabled:opacity-60"
+                                >
+                                  <PlusIcon className="w-3 h-3" />
+                                  Add
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </>
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
-                  <div>
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Itinerary</h4>
-                    {selectedTrip.items.length === 0 ? (
-                      <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
-                        No places yet | add some from the right.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {selectedTrip.items.map((it, idx) => (
-                          <div key={it.key} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 bg-white">
-                            <span className="w-6 h-6 shrink-0 rounded-full bg-slate-100 text-slate-500 text-xs font-semibold flex items-center justify-center">
-                              {idx + 1}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <Link href={`/listing/${it.listing_id}`} className="block font-medium text-slate-800 text-sm truncate hover:text-blue-700 transition">
-                                {it.name}
-                              </Link>
-                              {it.destination_name && <p className="text-[11px] text-slate-400 truncate">{it.destination_name}</p>}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeItem(it)}
-                              aria-label={`Remove ${it.name}`}
-                              className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition flex items-center justify-center"
-                            >
-                              <CloseIcon className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-                      {plannerMatches.length > 0 ? 'Search results' : 'Suggested for this trip'}
-                    </h4>
-                    <input
-                      value={plannerQuery}
-                      onChange={(e) => setPlannerQuery(e.target.value)}
-                      placeholder="Add any place | type to search…"
-                      className="w-full px-4 py-2.5 mb-3 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
-                    />
-                    <div className="space-y-2">
-                      {addList.length === 0 && (
-                        <p className="text-sm text-slate-400 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
-                          Nothing matches — try another keyword.
-                        </p>
-                      )}
-                      {addList.map((l) => (
-                        <div key={l.listing_id} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5">
-                          {l.image_url ? (
-                            <img src={l.image_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-slate-100 shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-slate-800 text-sm truncate">{l.name}</p>
-                            <p className="text-[11px] text-slate-400 truncate">
-                              {l.destination?.destination_name}
-                              {l.average_rating != null ? ` · ★ ${Number(l.average_rating).toFixed(1)}` : ''}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => addItem(l.listing_id)}
-                            disabled={addingId === l.listing_id}
-                            className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition disabled:opacity-60"
-                          >
-                            <PlusIcon className="w-3 h-3" />
-                            Add
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
                 {selectedTrip.items.length > 0 && (
-                  <div className="mt-8 border-t border-slate-100 pt-6">
+                  <div className={`${setupCollapsed ? 'mt-4' : 'mt-8'} border-t border-slate-100 pt-6`}>
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
                       <div>
                         <h4 className="text-base font-semibold text-slate-900">Day-by-day roadmap</h4>
@@ -1514,7 +1658,8 @@ export default function HomePage() {
                     {destExtra[hoverDest.name].top.join(', ')}
                   </p>
                 ) : null}
-                <p className="text-[11px] font-medium text-blue-600">Click to view listings →</p>
+                <p className="text-[11px] font-medium text-blue-600">Click to view listings
+                   →</p>
               </>
             )}
           </div>
@@ -1530,13 +1675,17 @@ export default function HomePage() {
                 <CloseIcon className="w-5 h-5" />
               </button>
             </div>
-            <input
-              value={destSearch}
-              onChange={(e) => setDestSearch(e.target.value)}
-              placeholder="Search province, city, or country…"
-              autoFocus
-              className="w-full px-4 py-3 mb-4 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
-            />
+            <div>
+              <input
+                value={destSearch}
+                onChange={(e) => setDestSearch(e.target.value)}
+                maxLength={50}
+                placeholder="Search province, city, or country…"
+                autoFocus
+                className="w-full px-4 py-3 mb-1 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+              />
+              <p className="text-xs text-slate-400 text-right mb-3">{destSearch.length}/50</p>
+            </div>
             <p className="text-sm text-slate-500 mb-3">
               {destSearch.trim().length >= 2 ? (
                 <>
@@ -1582,6 +1731,44 @@ export default function HomePage() {
             setSelectedTripId(id);
           }}
         />
+      )}
+
+      {showEditTripModal && selectedTrip && (
+        <EditTripModal
+          trip={selectedTrip}
+          onClose={() => setShowEditTripModal(false)}
+          onUpdated={async () => {
+            setShowEditTripModal(false);
+            await refreshTrips();
+          }}
+        />
+      )}
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowDeleteConfirm(null)}>
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Delete this trip?</h3>
+            <p className="text-sm text-slate-500 mb-6">
+              This will permanently delete the trip and all its places. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(null)}
+                className="flex-1 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteTrip(showDeleteConfirm)}
+                className="flex-1 py-3 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 active:bg-red-800 transition shadow-sm"
+              >
+                Delete trip
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <Footer />
@@ -1672,6 +1859,83 @@ function NewTripModal({ userId, onClose, onCreated }: { userId: string; onClose:
   );
 }
 
+function EditTripModal({ trip, onClose, onUpdated }: { trip: TripData; onClose: () => void; onUpdated: () => void }) {
+  const supabase = createClient();
+  const [name, setName] = useState(trip.trip_name ?? '');
+  const [start, setStart] = useState(trip.start_date ?? '');
+  const [end, setEnd] = useState(trip.end_date ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function update() {
+    setErr(null);
+    setBusy(true);
+    try {
+      if (!name.trim()) throw new Error('Give your trip a name.');
+      if (start && end && end < start) throw new Error('End date must be after the start date.');
+      const { error } = await supabase
+        .from('trips')
+        .update({ trip_name: name.trim(), start_date: start || null, end_date: end || null })
+        .eq('trip_id', trip.trip_id);
+      if (error) throw error;
+      onUpdated();
+    } catch (e: any) {
+      setErr(e?.message ?? 'Could not update the trip.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-slate-900">Edit trip</h3>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-600 transition">
+            <CloseIcon className="w-5 h-5" />
+          </button>
+        </div>
+        {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>}
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-baseline justify-between mb-1.5">
+              <label className="block text-sm font-medium text-slate-700">Trip name</label>
+              <span className="text-xs text-slate-400">{name.length}/100</span>
+            </div>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={100}
+              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Start date</label>
+              <input type="date" value={start} max={end || undefined} onChange={(e) => setStart(e.target.value)}
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">End date</label>
+              <input type="date" value={end} min={start || undefined} onChange={(e) => setEnd(e.target.value)}
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-3 mt-6">
+          <button type="button" onClick={onClose}
+            className="flex-1 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition">
+            Cancel
+          </button>
+          <button type="button" onClick={update} disabled={busy}
+            className="flex-1 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60">
+            {busy ? 'Updating…' : 'Update trip'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SparkleIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className ?? 'w-4 h-4'}>
@@ -1690,22 +1954,10 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PlaceOverlay({
-  type,
-  description,
-  fact,
-  footer,
-}: {
-  type: string;
-  description: string | null;
-  fact?: { label: string; value: string };
-  footer: string;
-}) {
+function PlaceOverlay({ type, description, fact, footer }: { type: string; description: string | null; fact?: { label: string; value: string }; footer: string }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col gap-2 bg-slate-900/90 backdrop-blur-sm p-4 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-      <span className="self-start px-2 py-0.5 rounded-full bg-white/15 text-[10px] font-semibold uppercase tracking-wider">
-        {type}
-      </span>
+      <span className="self-start px-2 py-0.5 rounded-full bg-white/15 text-[10px] font-semibold uppercase tracking-wider">{type}</span>
       {description ? (
         <p className="text-xs leading-relaxed text-slate-100 line-clamp-4">{description}</p>
       ) : (
