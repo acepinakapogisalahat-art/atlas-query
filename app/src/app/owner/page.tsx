@@ -251,9 +251,9 @@ export default function OwnerPage() {
                 <div className="p-3 border border-purple-200 bg-purple-50 rounded-lg space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">New destination</p>
                   <input value={destForm.name} onChange={(e) => setDestForm({ ...destForm, name: e.target.value })}
-                    placeholder="Destination name (e.g. Vigan)" className={inputCls} />
+                    maxLength={100} placeholder="Destination name (e.g. Vigan)" className={inputCls} />
                   <input value={destForm.region} onChange={(e) => setDestForm({ ...destForm, region: e.target.value })}
-                    placeholder="Region (Country), e.g. Ilocos Sur (Philippines)" className={inputCls} />
+                    maxLength={100} placeholder="Region (Country), e.g. Ilocos Sur (Philippines)" className={inputCls} />
                 </div>
               )}
 
@@ -289,38 +289,41 @@ export default function OwnerPage() {
               </div>
               <div>
                 <p className={labelCls}>Listing name</p>
-                <input value={form.name} onChange={set('name')} placeholder="e.g. Harbor View Inn" className={inputCls} required />
+                <input value={form.name} onChange={set('name')} maxLength={50} placeholder="e.g. Harbor View Inn" className={inputCls} required />
               </div>
               <div>
-                <p className={labelCls}>Description</p>
-                <textarea value={form.description} onChange={set('description')} rows={3} placeholder="What makes this place worth visiting?" className={inputCls} />
+                <div className="flex items-baseline justify-between mb-1">
+                  <p className={labelCls}>Description</p>
+                  <span className="text-xs text-slate-400">{form.description.length}/300</span>
+                </div>
+                <textarea value={form.description} onChange={set('description')} rows={3} maxLength={300} placeholder="What makes this place worth visiting?" className={inputCls} />
               </div>
               <div>
                 <p className={labelCls}>Address</p>
-                <input value={form.address} onChange={set('address')} placeholder="Street, city" className={inputCls} />
+                <input value={form.address} onChange={set('address')} maxLength={150} placeholder="Street, city" className={inputCls} />
               </div>
               {form.listing_type === 'Attraction' && (
                 <>
                   <div>
                     <p className={labelCls}>Activity name</p>
-                    <input value={form.activity_name} onChange={set('activity_name')} placeholder="e.g. Heritage walk" className={inputCls} />
+                    <input value={form.activity_name} onChange={set('activity_name')} maxLength={100} placeholder="e.g. Heritage walk" className={inputCls} />
                   </div>
                   <div>
                     <p className={labelCls}>Coordinates</p>
-                    <input value={form.coordinates} onChange={set('coordinates')} placeholder="e.g. 17.57N, 120.38E" className={inputCls} />
+                    <input value={form.coordinates} onChange={set('coordinates')} maxLength={50} placeholder="e.g. 17.57N, 120.38E" className={inputCls} />
                   </div>
                 </>
               )}
               {form.listing_type === 'Hotel' && (
                 <div>
                   <p className={labelCls}>Star rating</p>
-                  <input value={form.star_rating} onChange={set('star_rating')} placeholder="e.g. 4-star" className={inputCls} />
+                  <input value={form.star_rating} onChange={set('star_rating')} maxLength={20} placeholder="e.g. 4-star" className={inputCls} />
                 </div>
               )}
               {form.listing_type === 'Restaurant' && (
                 <div>
                   <p className={labelCls}>Cuisine type</p>
-                  <input value={form.cuisine_type} onChange={set('cuisine_type')} placeholder="e.g. Ilocano" className={inputCls} />
+                  <input value={form.cuisine_type} onChange={set('cuisine_type')} maxLength={50} placeholder="e.g. Ilocano" className={inputCls} />
                 </div>
               )}
               {!editing && (

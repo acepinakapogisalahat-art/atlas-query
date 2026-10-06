@@ -75,8 +75,10 @@ export default function LoginPage() {
       }
     >
       <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
+        {/* Decoy fields absorb browser autofill heuristics */}
         <input type="text" name="decoy-user" autoComplete="username" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true" />
         <input type="password" name="decoy-pass" autoComplete="current-password" style={{ display: 'none' }} tabIndex={-1} aria-hidden="true" />
+
         {error && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm">{error}</p>}
         {notice && (
           <p className="bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl px-4 py-3 text-sm">{notice}</p>
@@ -90,6 +92,7 @@ export default function LoginPage() {
             id="email"
             type="email"
             required
+            maxLength={35}
             autoComplete="off"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -111,6 +114,7 @@ export default function LoginPage() {
             id="password"
             type="password"
             required
+            maxLength={20}
             autoComplete="off"
             value={password}
             onChange={(e) => setPassword(e.target.value)}

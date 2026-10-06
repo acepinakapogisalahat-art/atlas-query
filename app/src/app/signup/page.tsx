@@ -122,6 +122,7 @@ export default function SignupPage() {
             ref={nameRef}
             id="name"
             required
+            maxLength={40}
             autoComplete="off"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -138,6 +139,7 @@ export default function SignupPage() {
             id="email"
             type="email"
             required
+            maxLength={35}
             autoComplete="off"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -171,6 +173,7 @@ export default function SignupPage() {
           <input
             ref={locationRef}
             id="location"
+            maxLength={40}
             autoComplete="off"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
@@ -187,10 +190,11 @@ export default function SignupPage() {
             id="password"
             type="password"
             required
+            maxLength={20}
             autoComplete="off"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 6 characters"
+            placeholder="password"
             className={inputCls}
           />
         </div>

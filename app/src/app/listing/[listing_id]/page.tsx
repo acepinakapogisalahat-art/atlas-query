@@ -372,14 +372,20 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Title (optional)</label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="A short headline"
+          <div className="flex items-baseline justify-between mb-1.5">
+            <label className="block text-sm font-medium text-slate-700">Title (optional)</label>
+            <span className="text-xs text-slate-400">{title.length}/50</span>
+          </div>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={50} placeholder="A short headline"
             className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Your review</label>
-          <textarea required value={text} onChange={(e) => setText(e.target.value)} rows={4}
-            placeholder="What was your experience like?"
+          <div className="flex items-baseline justify-between mb-1.5">
+            <label className="block text-sm font-medium text-slate-700">Your review</label>
+            <span className="text-xs text-slate-400">{text.length}/300</span>
+          </div>
+          <textarea required value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={300}
+            placeholder="What was your experience like? Would you recommend this place?"
             className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
         </div>
         <div>
