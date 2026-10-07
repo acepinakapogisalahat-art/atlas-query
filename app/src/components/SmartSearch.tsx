@@ -143,6 +143,7 @@ export default function SmartSearch({
           onKeyDown={(e) => {
             if (e.key === 'Enter') go();
           }}
+          maxLength={100}
           placeholder={placeholder}
           className="flex-1 min-w-0 py-2 text-base text-slate-900 placeholder-slate-400 outline-none bg-transparent"
         />
@@ -164,6 +165,11 @@ export default function SmartSearch({
           Search
         </button>
       </div>
+            {query.length > 0 && (
+        <p className={`text-right text-xs mt-1.5 pr-1 ${query.length > 90 ? 'text-amber-600 font-medium' : 'text-slate-400'}`}>
+          {query.length}/100
+        </p>
+      )}
 
       {/* Active filter chips */}
       {activeCount > 0 && (

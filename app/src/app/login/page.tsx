@@ -55,10 +55,6 @@ export default function LoginPage() {
       setBusy(false);
       return;
     }
-    // Wipe browser history so the back button never returns to login or pre-session pages
-    try {
-      window.history.replaceState(null, '', '/');
-    } catch {}
     router.push('/');
     router.refresh();
   }
@@ -81,7 +77,7 @@ export default function LoginPage() {
     setBusy(true);
     const { error: err } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
     if (err) {
       setError(err.message);
