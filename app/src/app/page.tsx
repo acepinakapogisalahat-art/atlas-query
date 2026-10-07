@@ -255,6 +255,7 @@ export default function HomePage() {
     | null
   >(null);
   const hoverTimer = useRef<any>(null);
+const plannerScrolledRef = useRef(false);
   const searchParams = useSearchParams();
 
   async function loadForecast(loc: string | null) {
@@ -1096,10 +1097,50 @@ export default function HomePage() {
   }, [selectedTrip?.trip_id, plannedDates.length]);
 
   useEffect(() => {
-    const t = searchParams.get('trip');
-    if (t && trips.some((x) => x.trip_id === t)) setSelectedTripId(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trips]);
+  const fromUrl = searchParams.get('trip');
+  const fromSession =
+    typeof window !== 'undefined' ? window.sessionStorage.getItem('tm-open-trip') : null;
+  const t = fromUrl ?? fromSession;
+
+  if (t && trips.some((x) => x.trip_id === t)) {
+    setSelectedTripId(t);
+    if (fromSession && typeof window !== 'undefined') {
+      window.sessionStorage.removeItem('tm-open-trip');
+    }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [trips]);
+
+  // Arriving via ?trip= deep link → once the planner is really on screen
+  // (skeleton gone, section mounted), smooth-scroll to it. The App Router
+  // ignores #hash navigation, and the section doesn't exist during the
+  // skeleton, so we trigger the scroll manually with a one-shot lock.
+useEffect(() => {
+  if (plannerScrolledRef.current) return;
+
+  const fromUrl = Boolean(searchParams.get('trip'));
+  const fromSession =
+    typeof window !== 'undefined' &&
+    window.sessionStorage.getItem('tm-scroll-planner') === '1';
+
+  if (!fromUrl && !fromSession) return;
+  if (role.authId && routing === null) return;
+
+  const el = document.getElementById('trip-planner');
+  if (!el) return;
+
+  plannerScrolledRef.current = true;
+
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.removeItem('tm-scroll-planner');
+    window.sessionStorage.removeItem('tm-open-trip');
+  }
+
+  requestAnimationFrame(() =>
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [searchParams, role.authId, routing, trips, selectedTripId]);
 
   function startHover(
     payload: { kind: 'listing'; id: string } | { kind: 'destination'; name: string },
@@ -1208,7 +1249,7 @@ export default function HomePage() {
       </section>
 
       {/* Trip Planner */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 w-full">
+      <section id="trip-planner" className="scroll-mt-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 w-full">
         <div className="flex items-end justify-between gap-3 mb-6">
           <div>
             <h2 className="text-2xl font-bold text-slate-900">Trip planner</h2>
@@ -1913,7 +1954,7 @@ export default function HomePage() {
       </section>
 
       {/* Recommendations */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 w-full">
+<section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 w-full">
         <SectionHeader
           title={hasPersonal ? 'Top picks for you' : 'Community favorites'}
           helper={hasPersonal ? 'From your recommendation profile' : 'Most-recommended places across TravelMate'}

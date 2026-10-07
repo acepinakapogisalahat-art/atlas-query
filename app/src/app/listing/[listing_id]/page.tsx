@@ -676,7 +676,9 @@ function AddToTripModal({
   onSuccess: () => void;
 }) {
   const supabase = createClient();
-  const [trips, setTrips] = useState<(Trip & { count: number; has: boolean })[]>([]);
+  const router = useRouter();
+
+  const [trips, setTrips] = useState<any[]>([]);
   const [selected, setSelected] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
@@ -684,7 +686,10 @@ function AddToTripModal({
   const [newEnd, setNewEnd] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Success state — stays open until the user chooses an action
   const [done, setDone] = useState<string | null>(null);
+  const [doneTripId, setDoneTripId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -693,6 +698,7 @@ function AddToTripModal({
         .select('*, trip_items(trip_item_id, listing_id)')
         .eq('user_id', userId)
         .order('start_date', { ascending: false });
+
       setTrips(
         ((data ?? []) as any[]).map((t) => ({
           trip_id: t.trip_id,
@@ -713,11 +719,14 @@ function AddToTripModal({
     setBusy(true);
     try {
       let tripId = selected;
+
       if (!tripId && showNew) {
         if (!newName.trim()) throw new Error('Give the new trip a name.');
         if (newStart && newEnd && newEnd < newStart) throw new Error('End date must be after the start date.');
+
         const { data: newId, error: idErr } = await supabase.rpc('new_trip_id');
         if (idErr) throw idErr;
+
         const { error: tripErr } = await supabase.from('trips').insert({
           trip_id: newId as string,
           user_id: userId,
@@ -726,85 +735,149 @@ function AddToTripModal({
           end_date: newEnd || null,
         });
         if (tripErr) throw tripErr;
+
         tripId = newId as string;
       }
+
       if (!tripId) throw new Error('Pick a trip or create a new one.');
+
+      const target = trips.find((t) => t.trip_id === tripId);
+      const seq = target ? target.count + 1 : 1;
+
       const { error } = await supabase.from('trip_items').insert({
         trip_item_id: `ITI-${Date.now().toString().slice(-8)}`,
         trip_id: tripId,
         listing_id: listingId,
-        sequence_no: 999,
+        sequence_no: seq,
         planned_date: null,
         start_time: null,
         notes: null,
       });
       if (error) throw error;
-      setDone(trips.find((t) => t.trip_id === tripId)?.trip_name ?? (newName.trim() || 'your trip'));
-      setTimeout(onSuccess, 1200);
+
+      const tripName = target?.trip_name ?? (newName.trim() || 'your trip');
+
+      // Keep the modal open on the success screen — no auto-close timer
+      setDoneTripId(tripId);
+      setDone(tripName);
     } catch (e: any) {
       setErr(e?.message ?? 'Could not add to trip.');
     }
     setBusy(false);
   }
 
+  function viewInPlanner() {
+    onSuccess();
+    router.push(doneTripId ? `/?trip=${encodeURIComponent(doneTripId)}#trip-planner` : '/#trip-planner');
+  }
+
+  function browseMore() {
+    onSuccess();
+    router.push('/search');
+  }
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto animate-slide-up" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in"
+      onClick={() => {
+        // Don't let an accidental backdrop click dismiss the success message
+        if (!done) onClose();
+      }}
+    >
+      <div
+        className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-900">Add to trip</h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+          <h3 className="text-lg font-semibold text-slate-900">{done ? 'Added to trip' : 'Add to trip'}</h3>
+          <button
+            type="button"
+            onClick={() => (done ? onSuccess() : onClose())}
+            className="text-slate-400 hover:text-slate-600 transition"
+            aria-label="Close"
+          >
             <Close className="w-5 h-5" />
           </button>
         </div>
 
+        {err && !done && (
+          <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>
+        )}
+
         {done ? (
-          <div className="text-center py-8">
+          /* ── Success screen — stays until the user acts ── */
+          <div className="text-center py-6">
             <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
               <Check className="w-8 h-8 text-emerald-600" />
             </div>
             <h4 className="text-lg font-semibold text-slate-900 mb-2">Added to {done}</h4>
-            <p className="text-sm text-slate-500">Find it under your itinerary in the trip planner.</p>
+            <p className="text-sm text-slate-500 mb-6">
+              This place is now in your itinerary. Open the planner to schedule it, or keep exploring.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={viewInPlanner}
+                className="px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition shadow-sm btn-press"
+              >
+                View in Trip Planner
+              </button>
+              <button
+                type="button"
+                onClick={browseMore}
+                className="px-4 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition"
+              >
+                Browse more
+              </button>
+            </div>
           </div>
         ) : (
+          /* ── Normal add-to-trip form ── */
           <>
             <p className="text-sm text-slate-500 mb-4">
               Adding: <span className="font-medium text-slate-900">{listingName}</span>
             </p>
-            {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>}
 
-            {trips.length > 0 && (
-              <div className="space-y-2 mb-4">
+            {trips.length > 0 ? (
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1 mb-4">
                 {trips.map((t) => (
-                  <button
+                  <label
                     key={t.trip_id}
-                    type="button"
-                    disabled={t.has}
-                    onClick={() => { setSelected(t.trip_id); setShowNew(false); }}
-                    className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
-                      selected === t.trip_id ? 'border-blue-600 bg-blue-50/60 ring-1 ring-blue-600' : 'border-slate-200 hover:border-slate-300'
+                    className={`flex items-start gap-3 p-3 rounded-xl border transition cursor-pointer ${
+                      selected === t.trip_id
+                        ? 'border-blue-500 bg-blue-50/60'
+                        : 'border-slate-200 hover:border-slate-300'
                     } ${t.has ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
-                    <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${selected === t.trip_id ? 'border-blue-600' : 'border-slate-300'}`}>
-                      {selected === t.trip_id && <span className="w-2 h-2 rounded-full bg-blue-600" />}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-slate-900 text-sm truncate">{t.trip_name}</p>
-                      <p className="text-xs text-slate-400">
-                        {fmtDate(t.start_date)} → {fmtDate(t.end_date)} · {t.count} place{t.count === 1 ? '' : 's'}
+                    <input
+                      type="radio"
+                      name="trip"
+                      value={t.trip_id}
+                      checked={selected === t.trip_id}
+                      disabled={t.has}
+                      onChange={() => setSelected(t.trip_id)}
+                      className="mt-1 accent-blue-600"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{t.trip_name}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {t.start_date ? `${t.start_date} → ${t.end_date ?? '—'}` : 'No dates set'} ·{' '}
+                        {t.count} place{t.count === 1 ? '' : 's'}
                       </p>
+                      {t.has && <p className="text-xs text-emerald-600 font-medium mt-0.5">Already in this trip</p>}
                     </div>
-                    {t.has && <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-semibold">Already added</span>}
-                  </button>
+                  </label>
                 ))}
               </div>
+            ) : (
+              <p className="text-sm text-slate-500 mb-4">No trips yet — create one below.</p>
             )}
 
             <button
               type="button"
-              onClick={() => { setShowNew(!showNew); if (!showNew) setSelected(''); }}
-              className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 hover:border-blue-400 hover:text-blue-600 transition mb-4"
+              onClick={() => setShowNew(!showNew)}
+              className="w-full text-sm font-medium text-blue-600 hover:text-blue-700 transition mb-3"
             >
-              <Plus className="w-4 h-4" />
               {showNew ? 'Hide new trip form' : 'Create a new trip'}
             </button>
 
@@ -826,25 +899,42 @@ function AddToTripModal({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">Start date</label>
-                    <input type="date" value={newStart} max={newEnd || undefined} onChange={(e) => setNewStart(e.target.value)}
-                      className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
+                    <input
+                      type="date"
+                      value={newStart}
+                      max={newEnd || undefined}
+                      onChange={(e) => setNewStart(e.target.value)}
+                      className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">End date</label>
-                    <input type="date" value={newEnd} min={newStart || undefined} onChange={(e) => setNewEnd(e.target.value)}
-                      className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition" />
+                    <input
+                      type="date"
+                      value={newEnd}
+                      min={newStart || undefined}
+                      onChange={(e) => setNewEnd(e.target.value)}
+                      className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                    />
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="flex gap-3">
-              <button type="button" onClick={onClose}
-                className="flex-1 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition">
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+              >
                 Cancel
               </button>
-              <button type="button" onClick={handleAdd} disabled={busy || (!selected && !(showNew && newName.trim()))}
-                className="flex-1 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60">
+              <button
+                type="button"
+                onClick={handleAdd}
+                disabled={busy || (!selected && !(showNew && newName.trim()))}
+                className="flex-1 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60"
+              >
                 {busy ? 'Adding…' : 'Add to trip'}
               </button>
             </div>
