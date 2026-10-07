@@ -44,6 +44,7 @@ type TripItem = {
   planned_date: string | null;
   start_time: string | null;
   sequence_no: number | null;
+  notes: string | null;
   raw: any;
 };
 
@@ -60,8 +61,6 @@ type TripData = {
 const REC_SELECT =
   'recommendation_score, recommendation_reason, listing:listing_id(listing_id, name, listing_type, destination:destination_id(destination_name, region_country))';
 
-const ACTIVITIES = ['Culture & Food', 'Adventure', 'Relaxation', 'Nightlife'];
-const BUDGETS = ['Budget', 'Mid-range', 'Luxury'];
 const EXPLORE_TABS = ['All', 'Attraction', 'Hotel', 'Restaurant'] as const;
 
 const FALLBACK_OUTLOOK: ForecastDay[] = [
@@ -71,6 +70,8 @@ const FALLBACK_OUTLOOK: ForecastDay[] = [
   { day: 'Thu', temp: 23 },
   { day: 'Fri', temp: 24 },
 ];
+
+const TIME_OPTIONS = ['07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
 
 const byRating = (a: ExploreCard, b: ExploreCard) => (b.average_rating ?? -1) - (a.average_rating ?? -1);
 
@@ -154,12 +155,12 @@ function SectionHeader({ title, helper }: { title: string; helper: string }) {
   );
 }
 
-function getTripStatus(t: { start_date: string | null; end_date: string | null; status: string | null }): string {
-  if (t.status && ['upcoming', 'ongoing', 'finished'].includes(t.status)) return t.status;
+// Status is derived purely from dates: today inside range → ongoing, past end → finished, before start → upcoming
+function getTripStatus(t: { start_date: string | null; end_date: string | null; status?: string | null }): string {
   const today = new Date().toISOString().slice(0, 10);
   if (!t.start_date || !t.end_date) return 'upcoming';
-  if (t.end_date < today) return 'finished';
-  if (t.start_date <= today && t.end_date >= today) return 'ongoing';
+  if (today > t.end_date) return 'finished';
+  if (today >= t.start_date && today <= t.end_date) return 'ongoing';
   return 'upcoming';
 }
 
@@ -185,18 +186,11 @@ export default function HomePage() {
   const role = useRole();
   const [routing, setRouting] = useState<boolean | null>(null);
 
-  // Owners, admins, and pending applicants get the Business Hub — never the traveler dashboard
   useEffect(() => {
     async function route() {
       if (role.loading) return;
-      if (!role.authId) {
-        setRouting(false);
-        return;
-      }
-      if (role.isOwner || role.isAdmin) {
-        router.replace('/business');
-        return;
-      }
+      if (!role.authId) { setRouting(false); return; }
+      if (role.isOwner || role.isAdmin) { router.replace('/business'); return; }
       if (role.userId) {
         const { data, error } = await supabase
           .from('business_applications')
@@ -204,17 +198,14 @@ export default function HomePage() {
           .eq('user_id', role.userId)
           .limit(1);
         const st = !error ? (data?.[0]?.status ?? null) : null;
-        if (st === 'pending') {
-          router.replace('/business');
-          return;
-        }
+        if (st === 'pending') { router.replace('/business'); return; }
       }
       setRouting(false);
     }
     route();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role.loading, role.authId, role.isOwner, role.isAdmin, role.userId]);
-  
+
   const [firstName, setFirstName] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [recs, setRecs] = useState<Rec[]>([]);
@@ -232,6 +223,8 @@ export default function HomePage() {
   const [showTripModal, setShowTripModal] = useState(false);
   const [showEditTripModal, setShowEditTripModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showReviewTripModal, setShowReviewTripModal] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<TripItem | null>(null);
   const [plannerQuery, setPlannerQuery] = useState('');
   const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [addingId, setAddingId] = useState<string | null>(null);
@@ -246,6 +239,13 @@ export default function HomePage() {
   const [schedMap, setSchedMap] = useState<Record<string, { open: string; close: string }>>({});
   const [setupCollapsed, setSetupCollapsed] = useState(false);
 
+  // Drag & drop + notes state
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+  const [showNoteModal, setShowNoteModal] = useState<{ afterKey: string; date: string } | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [noteTime, setNoteTime] = useState('');
+
   const [descMap, setDescMap] = useState<Record<string, string>>({});
   const [subtypeMap, setSubtypeMap] = useState<Record<string, { label: string; value: string }>>({});
   const [destExtra, setDestExtra] = useState<Record<string, { count: number; top: string[] }>>({});
@@ -258,31 +258,15 @@ export default function HomePage() {
   const searchParams = useSearchParams();
 
   async function loadForecast(loc: string | null) {
-    if (!loc) {
-      setForecast(FALLBACK_OUTLOOK);
-      setForecastLocation(null);
-      return;
-    }
+    if (!loc) { setForecast(FALLBACK_OUTLOOK); setForecastLocation(null); return; }
     try {
-      const geoRes = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(loc)}&count=1&language=en&format=json`
-      );
+      const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(loc)}&count=1&language=en&format=json`);
       const geoData = await geoRes.json();
-      if (!geoData.results || geoData.results.length === 0) {
-        setForecast(FALLBACK_OUTLOOK);
-        setForecastLocation(null);
-        return;
-      }
+      if (!geoData.results || geoData.results.length === 0) { setForecast(FALLBACK_OUTLOOK); setForecastLocation(null); return; }
       const { latitude, longitude } = geoData.results[0];
-      const weatherRes = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max&timezone=auto`
-      );
+      const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max&timezone=auto`);
       const weatherData = await weatherRes.json();
-      if (!weatherData.daily || !weatherData.daily.time || !weatherData.daily.temperature_2m_max) {
-        setForecast(FALLBACK_OUTLOOK);
-        setForecastLocation(null);
-        return;
-      }
+      if (!weatherData.daily || !weatherData.daily.time || !weatherData.daily.temperature_2m_max) { setForecast(FALLBACK_OUTLOOK); setForecastLocation(null); return; }
       const days: ForecastDay[] = weatherData.daily.time.slice(0, 5).map((dateStr: string, i: number) => {
         const date = new Date(dateStr);
         const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
@@ -305,7 +289,7 @@ export default function HomePage() {
     if (!rows.length) return [];
     const ids = rows.map((r) => r.trip_id);
     const { data: items } = await supabase.from('trip_items').select('*').in('trip_id', ids);
-    const listingIds = [...new Set((items ?? []).map((i: any) => i.listing_id).filter(Boolean))];
+    const listingIds = [...new Set((items ?? []).map((i: any) => i.listing_id).filter((id: any) => id && id !== 'NOTE'))];
     const lMap: Record<string, { name: string; destination_id: string | null; destination_name: string | null; region_country: string | null; listing_type: string | null; average_rating: number | null }> = {};
     if (listingIds.length) {
       const { data: ls } = await supabase
@@ -325,18 +309,20 @@ export default function HomePage() {
     }
     const map: Record<string, TripItem[]> = {};
     (items ?? []).forEach((i: any) => {
+      const isNote = i.listing_id == null || i.listing_id === 'NOTE';
       (map[i.trip_id] ??= []).push({
         key: i.trip_item_id ?? i.item_id ?? i.id ?? `${i.trip_id}|${i.listing_id}`,
         listing_id: i.listing_id,
-        destination_id: lMap[i.listing_id]?.destination_id ?? null,
-        name: lMap[i.listing_id]?.name ?? i.listing_id,
-        destination_name: lMap[i.listing_id]?.destination_name ?? null,
-        region_country: lMap[i.listing_id]?.region_country ?? null,
-        listing_type: lMap[i.listing_id]?.listing_type ?? null,
-        rating: lMap[i.listing_id]?.average_rating ?? null,
+        destination_id: isNote ? null : lMap[i.listing_id]?.destination_id ?? null,
+        name: isNote ? (i.notes ?? 'Note') : lMap[i.listing_id]?.name ?? i.listing_id,
+        destination_name: isNote ? null : lMap[i.listing_id]?.destination_name ?? null,
+        region_country: isNote ? null : lMap[i.listing_id]?.region_country ?? null,
+        listing_type: isNote ? 'Note' : lMap[i.listing_id]?.listing_type ?? null,
+        rating: isNote ? null : lMap[i.listing_id]?.average_rating ?? null,
         planned_date: i.planned_date ?? null,
         start_time: i.start_time ?? null,
         sequence_no: i.sequence_no ?? null,
+        notes: i.notes ?? null,
         raw: i,
       });
     });
@@ -533,14 +519,6 @@ export default function HomePage() {
     setStartBusy(false);
   }
 
-  async function updateTripStatus(status: string) {
-    const trip = selectedTrip;
-    if (!trip) return;
-    const { error } = await supabase.from('trips').update({ status }).eq('trip_id', trip.trip_id);
-    if (error) setPlannerErr(error.message);
-    else await refreshTrips();
-  }
-
   async function deleteTrip(tripId: string) {
     const { error: itemsErr } = await supabase.from('trip_items').delete().eq('trip_id', tripId);
     if (itemsErr) {
@@ -562,15 +540,14 @@ export default function HomePage() {
     setPlannerErr(null);
     setAddingId(listingId);
     try {
-      if (trip.items.length >= capacity) {
+      const placeCount = trip.items.filter((i) => i.listing_type !== 'Note').length;
+      if (placeCount >= capacity) {
         throw new Error(
           tripDays
             ? `Trip full: ${tripDays} day${tripDays === 1 ? '' : 's'} fit ${capacity} places (3 per day). Extend the dates or remove a place.`
             : 'Starter limit reached (6 places). Set trip dates to unlock more slots.'
         );
       }
-
-      // Auto-create stop if no stops exist
       if (trip.stops.length === 0) {
         const listing = addList.find((l) => l.listing_id === listingId);
         if (listing) {
@@ -580,7 +557,6 @@ export default function HomePage() {
           }
         }
       }
-
       const { error } = await supabase.from('trip_items').insert({
         trip_item_id: `ITI-${Date.now().toString().slice(-8)}`,
         trip_id: trip.trip_id,
@@ -598,15 +574,23 @@ export default function HomePage() {
     setAddingId(null);
   }
 
-  async function removeItem(it: TripItem) {
-    const { error } = await supabase.from('trip_items').delete().eq('trip_item_id', it.key);
-    if (!error) await refreshTrips();
+  // Opens the confirm dialog instead of deleting immediately
+  function removeItem(it: TripItem) {
+    setPendingRemove(it);
+  }
+
+  // The real delete — runs only after the user confirms
+  async function performRemove(it: TripItem) {
+    const { error } = await supabase.from('trip_items').delete().eq('trip_item_id', dbId(it));
+    if (error) setPlannerErr(error.message);
+    else await refreshTrips();
+    setPendingRemove(null);
   }
 
   function stopsFor(date: string) {
     return (selectedTrip?.items ?? [])
       .filter((i) => i.planned_date === date)
-      .sort((a, b) => (a.sequence_no ?? 0) - (b.sequence_no ?? 0));
+      .sort((a, b) => (a.sequence_no ?? 0) - (b.sequence_no ?? 0) || (a.start_time ?? '').localeCompare(b.start_time ?? ''));
   }
 
   function slotLabel(it: TripItem) {
@@ -624,6 +608,213 @@ export default function HomePage() {
     const ampm = hr >= 12 ? 'PM' : 'AM';
     const hr12 = hr % 12 === 0 ? 12 : hr % 12;
     return `${hr12}:${m} ${ampm}`;
+  }
+
+  // ---------- Drag & drop + notes helpers ----------
+  function dbId(it: TripItem) {
+    return it.raw?.trip_item_id ?? it.key;
+  }
+
+  const toMin = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  function matchesStop(dest: { destination_name?: string | null; region_country?: string | null } | null, label: string) {
+    const l = label.trim().toLowerCase();
+    if (!l || !dest) return false;
+    return (
+      (dest.region_country ?? '').toLowerCase().includes(l) ||
+      (dest.destination_name ?? '').toLowerCase().includes(l)
+    );
+  }
+
+  function getItemStop(item: TripItem): string | null {
+    if (!item.destination_name && !item.region_country) return null;
+    for (const s of tripStops) {
+      if (matchesStop(item, s.label)) return s.label;
+    }
+    return null;
+  }
+
+  function getStopForDate(date: string): string | null {
+    if (!selectedTrip?.start_date || !tripStops.length) return null;
+    const start = new Date(selectedTrip.start_date + 'T00:00:00');
+    const target = new Date(date + 'T00:00:00');
+    const off = Math.floor((target.getTime() - start.getTime()) / 86400000);
+    let cursor = 0;
+    for (const s of tripStops) {
+      const n = s.days || 1;
+      if (off >= cursor && off < cursor + n) return s.label;
+      cursor += n;
+    }
+    return null;
+  }
+
+  // Renumber a day's items 1..n so swaps/moves always change visible order
+  async function normalizeDay(date: string) {
+    const trip = selectedTrip;
+    if (!trip) return;
+    const dayItems = trip.items
+      .filter((i) => i.planned_date === date)
+      .sort((a, b) => (a.sequence_no ?? 0) - (b.sequence_no ?? 0) || (a.start_time ?? '').localeCompare(b.start_time ?? ''));
+    for (let i = 0; i < dayItems.length; i++) {
+      if ((dayItems[i].sequence_no ?? 0) !== i + 1) {
+        const { error } = await supabase
+          .from('trip_items')
+          .update({ sequence_no: i + 1 })
+          .eq('trip_item_id', dbId(dayItems[i]));
+        if (!error) dayItems[i].sequence_no = i + 1;
+      }
+    }
+  }
+
+  // Gray out times that break the rules: same time, <1h apart, or out of order
+  function timeOptionDisabled(item: TripItem, option: string): boolean {
+    if (!item.planned_date) return false;
+    const om = toMin(option);
+    const others = (selectedTrip?.items ?? []).filter(
+      (i) => i.planned_date === item.planned_date && i.key !== item.key && i.start_time
+    );
+    for (const o of others) {
+      const om2 = toMin((o.start_time ?? '').slice(0, 5));
+      if (Math.abs(om2 - om) < 60) return true;
+    }
+    const seqOthers = others.sort((a, b) => (a.sequence_no ?? 0) - (b.sequence_no ?? 0));
+    const selfSeq = item.sequence_no ?? 0;
+    const prev = seqOthers.filter((i) => (i.sequence_no ?? 0) < selfSeq).pop();
+    const next = seqOthers.filter((i) => (i.sequence_no ?? 0) > selfSeq).shift();
+    if (prev && om < toMin((prev.start_time ?? '').slice(0, 5)) + 60) return true;
+    if (next && om > toMin((next.start_time ?? '').slice(0, 5)) - 60) return true;
+    return false;
+  }
+
+  async function changeItemTime(itemKey: string, time: string) {
+    const trip = selectedTrip;
+    if (!trip || !time) return;
+    const item = trip.items.find((i) => i.key === itemKey);
+    if (!item) return;
+    setPlannerErr(null);
+    const { error } = await supabase
+      .from('trip_items')
+      .update({ start_time: `${time}:00` })
+      .eq('trip_item_id', dbId(item));
+    if (error) setPlannerErr(error.message);
+    else await refreshTrips();
+  }
+
+  // Drag card onto a day → move it there (same region only), time auto-picks a free slot
+  async function moveItemToDay(itemKey: string, date: string) {
+    const trip = selectedTrip;
+    if (!trip) return;
+    const item = trip.items.find((i) => i.key === itemKey);
+    if (!item || item.listing_type === 'Note' || item.planned_date === date) return;
+    const itemStop = getItemStop(item);
+    const targetStop = getStopForDate(date);
+    if (itemStop && targetStop && itemStop !== targetStop) {
+      setPlannerErr(`"${item.name}" belongs to ${itemStop} — it can't move to a ${targetStop} day.`);
+      return;
+    }
+    const dayPlaces = trip.items.filter((i) => i.planned_date === date && i.listing_type !== 'Note' && i.key !== itemKey);
+    if (dayPlaces.length >= 3) {
+      setPlannerErr('That day already has 3 places. Drop onto a card to swap instead.');
+      return;
+    }
+    await normalizeDay(date);
+    const taken = new Set(trip.items.filter((i) => i.planned_date === date).map((i) => i.sequence_no ?? 0));
+    let seq = 1;
+    while (taken.has(seq)) seq++;
+    const slot = ['09:00', '13:00', '18:00'].find((s) => !timeOptionDisabled(item, s));
+    if (!slot) {
+      setPlannerErr('No free time slot on that day — times must stay 1 hour apart.');
+      return;
+    }
+    setPlannerErr(null);
+    const { error } = await supabase
+      .from('trip_items')
+      .update({ planned_date: date, start_time: `${slot}:00`, sequence_no: seq })
+      .eq('trip_item_id', dbId(item));
+    if (error) setPlannerErr(error.message);
+    else await refreshTrips();
+  }
+
+  // Drag card onto another card → swap their days/times/positions (same region only)
+  async function swapItems(keyA: string, keyB: string) {
+    const trip = selectedTrip;
+    if (!trip || keyA === keyB) return;
+    const a = trip.items.find((i) => i.key === keyA);
+    const b = trip.items.find((i) => i.key === keyB);
+    if (!a || !b || a.listing_type === 'Note' || b.listing_type === 'Note') return;
+    const stopA = getStopForDate(a.planned_date ?? '');
+    const stopB = getStopForDate(b.planned_date ?? '');
+    const regionA = getItemStop(a);
+    const regionB = getItemStop(b);
+    if (stopA && regionB && stopA !== regionB) { setPlannerErr(`Can't swap — "${b.name}" isn't in ${stopA}.`); return; }
+    if (stopB && regionA && stopB !== regionA) { setPlannerErr(`Can't swap — "${a.name}" isn't in ${stopB}.`); return; }
+    const dayA = a.planned_date!;
+    const dayB = b.planned_date!;
+    await normalizeDay(dayA);
+    if (dayB !== dayA) await normalizeDay(dayB);
+    setPlannerErr(null);
+    const { error: e1 } = await supabase
+      .from('trip_items')
+      .update({ planned_date: b.planned_date, start_time: b.start_time, sequence_no: b.sequence_no })
+      .eq('trip_item_id', dbId(a));
+    const { error: e2 } = await supabase
+      .from('trip_items')
+      .update({ planned_date: a.planned_date, start_time: a.start_time, sequence_no: a.sequence_no })
+      .eq('trip_item_id', dbId(b));
+    if (e1 || e2) setPlannerErr((e1 ?? e2)?.message ?? 'Swap failed.');
+    else await refreshTrips();
+  }
+
+  // Insert a note between two cards on a day
+  async function addNoteBetween() {
+    const trip = selectedTrip;
+    if (!trip || !showNoteModal || !noteText.trim()) return;
+    const { afterKey, date } = showNoteModal;
+    setPlannerErr(null);
+    if (noteTime) {
+      const om = toMin(noteTime);
+      const clash = trip.items.some(
+        (i) => i.planned_date === date && i.start_time && Math.abs(toMin((i.start_time ?? '').slice(0, 5)) - om) < 60
+      );
+      if (clash) {
+        setPlannerErr('That note time clashes with another stop — times must be unique and 1 hour apart.');
+        return;
+      }
+    }
+    const dayItems = trip.items
+      .filter((i) => i.planned_date === date)
+      .sort((a, b) => (a.sequence_no ?? 0) - (b.sequence_no ?? 0));
+    const after = dayItems.find((i) => i.key === afterKey);
+    if (!after) return;
+    const insertSeq = (after.sequence_no ?? 0) + 1;
+    try {
+      for (const i of dayItems.filter((x) => (x.sequence_no ?? 0) >= insertSeq)) {
+        const { error } = await supabase
+          .from('trip_items')
+          .update({ sequence_no: (i.sequence_no ?? 0) + 1 })
+          .eq('trip_item_id', dbId(i));
+        if (error) throw error;
+      }
+      const { error } = await supabase.from('trip_items').insert({
+        trip_item_id: `NOTE-${Date.now().toString().slice(-8)}`,
+        trip_id: trip.trip_id,
+        listing_id: null,
+        sequence_no: insertSeq,
+        planned_date: date,
+        start_time: noteTime ? `${noteTime}:00` : null,
+        notes: noteText.trim(),
+      });
+      if (error) throw error;
+      setShowNoteModal(null);
+      setNoteText('');
+      setNoteTime('');
+      await refreshTrips();
+    } catch (e: any) {
+      setPlannerErr(e?.message ?? 'Could not add note.');
+    }
   }
 
   async function updateTripDates(start: string, end: string) {
@@ -663,7 +854,7 @@ export default function HomePage() {
       setPlannerErr('Add a destination stop first (e.g., "La Union"), then add places inside it.');
       return;
     }
-    if (trip.items.length === 0) {
+    if (trip.items.filter((i) => i.listing_type !== 'Note').length === 0) {
       setPlannerErr('Add at least one place first.');
       return;
     }
@@ -682,14 +873,61 @@ export default function HomePage() {
         cursor += n;
       }
 
+      // Keep sequence numbers unique per day (notes keep their slots)
+      const daySeqTaken = new Map<string, Set<number>>();
+      function takeSeq(date: string): number {
+        if (!daySeqTaken.has(date)) {
+          daySeqTaken.set(
+            date,
+            new Set(trip.items.filter((i) => i.planned_date === date && i.listing_type === 'Note').map((i) => i.sequence_no ?? 0))
+          );
+        }
+        const set = daySeqTaken.get(date)!;
+        let s = 1;
+        while (set.has(s)) s++;
+        set.add(s);
+        return s;
+      }
+
       const typeRank: Record<string, number> = { Attraction: 0, Restaurant: 1, Hotel: 2 };
       const assignments: { item: TripItem; date: string; time: string; seq: number }[] = [];
+
+      // Track used times per day so the planner never assigns the same time twice
+      const usedTimesPerDay = new Map<string, Set<string>>();
+      function getUsedTimes(date: string) {
+        if (!usedTimesPerDay.has(date)) usedTimesPerDay.set(date, new Set());
+        return usedTimesPerDay.get(date)!;
+      }
+      function getTime(date: string, slotIdx: number, allowed: string[]): string {
+        const usedTimes = getUsedTimes(date);
+        const preferred = ['09:00:00', '13:00:00', '18:00:00'];
+        const pref = preferred[slotIdx];
+        // 1. Preferred time is allowed and free
+        if (allowed.includes(pref) && !usedTimes.has(pref)) {
+          usedTimes.add(pref); return pref;
+        }
+        // 2. Any allowed time is free
+        for (const t of allowed) {
+          if (!usedTimes.has(t)) { usedTimes.add(t); return t; }
+        }
+        // 3. Preferred time is free (even if not strictly "allowed")
+        if (!usedTimes.has(pref)) { usedTimes.add(pref); return pref; }
+        // 4. Fallback: generate a unique 30-min offset time
+        const baseHour = [9, 13, 18][slotIdx];
+        let h = baseHour, m = 0;
+        while (usedTimes.has(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`)) {
+          m += 30; if (m >= 60) { m = 0; h += 1; }
+          if (h >= 23) { h = 9; m = 0; break; }
+        }
+        const finalTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+        usedTimes.add(finalTime); return finalTime;
+      }
 
       for (const s of tripStops) {
         const days = blocks.get(s.label) ?? [];
         if (!days.length) continue;
         const items = trip.items
-          .filter((i) => matchesStop(i, s.label))
+          .filter((i) => matchesStop(i, s.label) && i.listing_type !== 'Note')
           .sort((a, b) => {
             const ta = typeRank[a.listing_type ?? ''] ?? 3;
             const tb = typeRank[b.listing_type ?? ''] ?? 3;
@@ -701,19 +939,16 @@ export default function HomePage() {
         for (const item of items) {
           if (item.listing_type === 'Hotel') continue;
           const allowed = pickSlotTimes(item.listing_type, item.listing_id);
-          if (used >= 3) {
-            dayIdx += 1;
-            used = 0;
-          }
+          if (used >= 3) { dayIdx += 1; used = 0; }
           if (dayIdx >= days.length) dayIdx = days.length - 1;
-          const time = allowed[Math.min(used, allowed.length - 1)];
-          assignments.push({ item, date: days[dayIdx], time, seq: used + 1 });
+
+          const time = getTime(days[dayIdx], used, allowed);
+          assignments.push({ item, date: days[dayIdx], time, seq: takeSeq(days[dayIdx]) });
           used += 1;
         }
       }
-
       const assignedKeys = new Set(assignments.map((a) => a.item.key));
-      const leftovers = trip.items.filter((i) => !assignedKeys.has(i.key) && i.listing_type !== 'Hotel');
+      const leftovers = trip.items.filter((i) => !assignedKeys.has(i.key) && i.listing_type !== 'Hotel' && i.listing_type !== 'Note');
       if (leftovers.length) {
         const restDays = allDays.slice(cursor);
         const days = restDays.length ? restDays : allDays;
@@ -721,12 +956,11 @@ export default function HomePage() {
         let used = 0;
         for (const item of leftovers.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1))) {
           const allowed = pickSlotTimes(item.listing_type, item.listing_id);
-          if (used >= 3) {
-            dayIdx += 1;
-            used = 0;
-          }
+          if (used >= 3) { dayIdx += 1; used = 0; }
           if (dayIdx >= days.length) dayIdx = days.length - 1;
-          assignments.push({ item, date: days[dayIdx], time: allowed[Math.min(used, allowed.length - 1)], seq: used + 1 });
+
+          const time = getTime(days[dayIdx], used, allowed);
+          assignments.push({ item, date: days[dayIdx], time, seq: takeSeq(days[dayIdx]) });
           used += 1;
         }
       }
@@ -735,7 +969,7 @@ export default function HomePage() {
         const { error } = await supabase
           .from('trip_items')
           .update({ planned_date: a.date, start_time: a.time, sequence_no: a.seq })
-          .eq('trip_item_id', a.item.key);
+          .eq('trip_item_id', dbId(a.item));
         if (error) throw error;
       }
       await refreshTrips();
@@ -757,16 +991,7 @@ export default function HomePage() {
   }
 
   const selectedTrip = trips.find((t) => t.trip_id === selectedTripId) ?? trips[0] ?? null;
-  const inTripIds = new Set(selectedTrip?.items.map((i) => i.listing_id) ?? []);
-
-  function matchesStop(dest: { destination_name?: string | null; region_country?: string | null } | null, label: string) {
-    const l = label.trim().toLowerCase();
-    if (!l || !dest) return false;
-    return (
-      (dest.region_country ?? '').toLowerCase().includes(l) ||
-      (dest.destination_name ?? '').toLowerCase().includes(l)
-    );
-  }
+  const inTripIds = new Set(selectedTrip?.items.map((i) => i.listing_id).filter((id) => id != null && id !== 'NOTE') ?? []);
 
   const tripStops = (selectedTrip?.stops ?? []) as { label: string; days: number }[];
 
@@ -816,11 +1041,12 @@ export default function HomePage() {
       : null;
   const totalAllocated = tripStops.reduce((sum, s) => sum + (s.days || 1), 0);
   const capacity = tripStops.length > 0 ? totalAllocated * 3 : tripDays ? tripDays * 3 : 6;
+  const placeCount = selectedTrip ? selectedTrip.items.filter((i) => i.listing_type !== 'Note').length : 0;
 
   const plannedDates = selectedTrip
     ? ([...new Set(selectedTrip.items.map((i) => i.planned_date).filter(Boolean))] as string[]).sort()
     : [];
-  const unscheduledCount = selectedTrip ? selectedTrip.items.filter((i) => !i.planned_date).length : 0;
+  const unscheduledCount = selectedTrip ? selectedTrip.items.filter((i) => !i.planned_date && i.listing_type !== 'Note').length : 0;
 
   const previewCount =
     destSearch.trim().length >= 2 ? explore.filter((l) => matchesStop(l.destination, destSearch)).length : 0;
@@ -869,7 +1095,6 @@ export default function HomePage() {
     }
   }, [selectedTrip?.trip_id, plannedDates.length]);
 
-  // Deep link from /my-trips: /?trip=TRP-001 selects that trip
   useEffect(() => {
     const t = searchParams.get('trip');
     if (t && trips.some((x) => x.trip_id === t)) setSelectedTripId(t);
@@ -919,7 +1144,6 @@ export default function HomePage() {
     return (
       <main className="min-h-screen bg-slate-50 pb-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          {/* Hero skeleton */}
           <div className="bg-gradient-to-b from-blue-50/60 via-white to-white border-b border-slate-200 mb-8 animate-fade-in">
             <div className="pt-16 pb-12">
               <div className="h-12 shimmer rounded-xl w-96 mx-auto" />
@@ -927,8 +1151,6 @@ export default function HomePage() {
               <div className="h-16 shimmer rounded-2xl w-full max-w-3xl mx-auto mt-8" />
             </div>
           </div>
-
-          {/* Trip planner skeleton */}
           <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-6 animate-fade-in-up" style={{ animationDelay: '150ms', opacity: 0 }}>
             <div className="space-y-3">
               {[1, 2, 3].map((i) => (
@@ -944,12 +1166,10 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col page-enter">
-            {/* Hero Section */}
+      {/* Hero Section */}
       <section className="relative bg-gradient-to-b from-blue-50/70 via-white to-white border-b border-slate-200/60">
-        {/* Soft decorative glows */}
         <div className="pointer-events-none absolute -top-24 -left-24 w-96 h-96 rounded-full bg-blue-100/60 blur-3xl" />
         <div className="pointer-events-none absolute -top-16 -right-24 w-96 h-96 rounded-full bg-indigo-100/50 blur-3xl" />
-
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-24">
           <div className="text-center">
             <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-100/80 text-blue-700 text-sm font-semibold mb-6">
@@ -965,11 +1185,9 @@ export default function HomePage() {
                 ? 'Where will your next story begin? Search below, or jump straight into your picks.'
                 : 'Explore hand-rated places around the world — or create a free account for personal picks.'}
             </p>
-
             <div className="mt-10 max-w-3xl mx-auto">
               <SmartSearch placeholder='Where to? Try "Japan", "Kyoto", or "Palawan"' />
             </div>
-
             {recent.length > 0 && (
               <div className="mt-7 flex items-center justify-center gap-3 flex-wrap">
                 <span className="text-sm font-semibold text-slate-500">Recent:</span>
@@ -1014,12 +1232,8 @@ export default function HomePage() {
               Save places into dated itineraries and get suggestions tailored to each destination.
             </p>
             <div className="flex justify-center gap-4">
-              <Link href="/signup" className="btn-primary">
-                Create a free account
-              </Link>
-              <Link href="/login" className="btn-secondary">
-                Sign in
-              </Link>
+              <Link href="/signup" className="btn-primary">Create a free account</Link>
+              <Link href="/login" className="btn-secondary">Sign in</Link>
             </div>
           </div>
         ) : trips.length === 0 ? (
@@ -1139,30 +1353,53 @@ export default function HomePage() {
                     <div className="flex-1 min-w-0">
                       <h3 className="text-2xl font-bold text-slate-900">{selectedTrip.trip_name ?? `Trip ${selectedTrip.trip_id}`}</h3>
                       <div className="flex items-center gap-3 mt-2">
-                        <select
-                          value={getTripStatus(selectedTrip)}
-                          onChange={(e) => updateTripStatus(e.target.value)}
-                          className="px-3 py-2 rounded-lg border border-slate-300 text-sm font-medium focus:ring-2 focus:ring-blue-600 outline-none transition bg-white"
-                        >
-                          <option value="upcoming">Upcoming</option>
-                          <option value="ongoing">Ongoing</option>
-                          <option value="finished">Finished</option>
-                        </select>
+                        {/* Status badge — derived from dates, no manual override */}
+                        <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                          getTripStatus(selectedTrip) === 'finished' ? 'bg-slate-100 text-slate-700' :
+                          getTripStatus(selectedTrip) === 'ongoing' ? 'bg-blue-100 text-blue-800' :
+                          'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {getTripStatus(selectedTrip) === 'finished' ? 'Finished' : getTripStatus(selectedTrip) === 'ongoing' ? 'Ongoing' : 'Upcoming'}
+                        </span>
                         <span className="text-sm text-slate-500">
                           {fmtDate(selectedTrip.start_date)} → {fmtDate(selectedTrip.end_date)}
                         </span>
                       </div>
                     </div>
                   </div>
-                  <div className="mt-4 flex items-center gap-3">
+
+                  {/* Review prompt — only when the trip is finished */}
+                  {getTripStatus(selectedTrip) === 'finished' && (
+                    <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                          <SparkleIcon className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm">Your trip is complete! ✨</p>
+                          <p className="text-xs text-slate-600">How was your experience? Review the places you visited.</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowReviewTripModal(true)}
+                        className="shrink-0 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition shadow-sm btn-press"
+                      >
+                        Review places
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Slots progress bar (restored — was broken by the last paste) */}
+                  <div className="flex items-center gap-3">
                     <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, (selectedTrip.items.length / capacity) * 100)}%` }}
+                        style={{ width: `${Math.min(100, (placeCount / capacity) * 100)}%` }}
                       />
                     </div>
                     <span className="text-sm text-slate-600 font-medium">
-                      {selectedTrip.items.length}/{capacity} slots
+                      {placeCount}/{capacity} slots
                       {tripDays ? ` · ${tripDays} days` : ' · set dates for more'}
                     </span>
                   </div>
@@ -1179,7 +1416,7 @@ export default function HomePage() {
                     <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700">Trip setup</h4>
                     <ChevronDown className={`w-5 h-5 text-slate-400 transition ${setupCollapsed ? '-rotate-90' : ''}`} />
                   </button>
-                  
+
                   {!setupCollapsed && (
                     <>
                       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -1271,9 +1508,13 @@ export default function HomePage() {
                                     {idx + 1}
                                   </span>
                                   <div className="flex-1 min-w-0">
-                                    <Link href={`/listing/${it.listing_id}`} className="block font-semibold text-slate-900 text-base truncate hover:text-blue-700 transition">
-                                      {it.name}
-                                    </Link>
+                                    {it.listing_type === 'Note' ? (
+                                      <span className="block font-semibold text-amber-700 text-base truncate">📝 {it.notes}</span>
+                                    ) : (
+                                      <Link href={`/listing/${it.listing_id}`} className="block font-semibold text-slate-900 text-base truncate hover:text-blue-700 transition">
+                                        {it.name}
+                                      </Link>
+                                    )}
                                     {it.destination_name && <p className="text-xs text-slate-500 truncate mt-0.5">{it.destination_name}</p>}
                                   </div>
                                   <button
@@ -1351,12 +1592,12 @@ export default function HomePage() {
                         <h4 className="text-xl font-bold text-slate-900 mb-1">Day-by-day roadmap</h4>
                         <p className="text-sm text-slate-500">
                           {plannedDates.length > 0
-                            ? `Planned by TravelMate — morning, afternoon & evening slots${
+                            ? `Drag a card onto another day to move it (same region only) · drop on a card to swap · hover between two cards to add a note · times dropdown grays out conflicts${
                                 unscheduledCount > 0
                                   ? ` · ${unscheduledCount} new place${unscheduledCount === 1 ? '' : 's'} waiting to be planned`
                                   : ''
                               }`
-                            : 'Not scheduled yet — press "Plan automatically" to build your days'}
+                            : 'Not scheduled yet — press "Plan automatically" to build your days, then drag cards to customize'}
                         </p>
                       </div>
                       <div className="flex gap-3">
@@ -1385,48 +1626,154 @@ export default function HomePage() {
                       <>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
                           <SummaryTile label="Days" value={String(plannedDates.length)} />
-                          <SummaryTile label="Places" value={String(selectedTrip.items.length)} />
+                          <SummaryTile label="Places" value={String(placeCount)} />
                           <SummaryTile
                             label="Destinations"
                             value={String(new Set(selectedTrip.items.map((i) => i.destination_name).filter(Boolean)).size)}
                           />
-                          <SummaryTile label="Pace" value={`${(selectedTrip.items.length / plannedDates.length).toFixed(1)}/day`} />
+                          <SummaryTile label="Pace" value={`${(placeCount / plannedDates.length).toFixed(1)}/day`} />
                         </div>
 
                         <div className="relative pl-8">
-                          <div className="absolute left-[11px] top-2 bottom-2 w-0.5 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full" />
                           {plannedDates.map((date, di) => (
-                            <div key={date} className="relative mb-10 last:mb-0">
-                              <span className="absolute -left-8 top-1 w-6 h-6 rounded-full border-4 border-blue-600 bg-white shadow-lg" />
+                            <div
+                              key={date}
+                              onDragOver={(e) => { e.preventDefault(); setDragOverDay(date); }}
+                              onDragLeave={() => setDragOverDay((d) => (d === date ? null : d))}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const key = e.dataTransfer.getData('text/plain') || dragKey;
+                                if (key) moveItemToDay(key, date);
+                                setDragOverDay(null);
+                                setDragKey(null);
+                              }}
+                              className={`relative mb-10 last:mb-0 rounded-2xl transition ${
+                                dragOverDay === date ? 'ring-2 ring-blue-400 ring-offset-4 ring-offset-slate-50 bg-blue-50/30' : ''
+                              }`}
+                            >
+                              <span className="absolute -left-8 top-0.5 z-10 w-6 h-6 rounded-full border-4 border-blue-600 bg-white shadow-lg" />
+                              {di < plannedDates.length - 1 && (
+                                <span
+                                  className="absolute -left-[21px] top-8 -bottom-[42px] w-0.5 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full"
+                                  aria-hidden="true"
+                                />
+                              )}
                               <div className="flex items-baseline gap-4 mb-4">
                                 <p className="text-lg font-bold text-slate-900">Day {di + 1}</p>
                                 <p className="text-sm text-slate-500 font-medium">{fmtDate(date)}</p>
+                                {dragOverDay === date && (
+                                  <span className="text-xs font-bold text-blue-600">Drop to move here</span>
+                                )}
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {stopsFor(date).map((it) => (
-                                  <Link
-                                    key={it.key}
-                                    href={`/listing/${it.listing_id}`}
-                                    className="card-hover p-5 transition-all"
-                                  >
-                                    <div className="flex items-center justify-between mb-3">
-                                      <span className="px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-bold uppercase tracking-wider shadow-sm">
-                                        {slotLabel(it)}
-                                      </span>
-                                      <span className="text-xs text-slate-500 font-medium">{fmtTime(it.start_time)}</span>
+                                {stopsFor(date).map((it, idx, arr) => (
+                                  <div key={it.key} className="relative group/note h-full">
+                                    <div className="h-full flex flex-col">
+                                      {it.listing_type === 'Note' ? (
+                                        <div className="flex-1 rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 p-5 shadow-sm flex flex-col">
+                                          <div className="flex items-center justify-between gap-2 mb-3">
+                                            <span className="px-2.5 py-1 rounded-full bg-amber-400 text-white text-[10px] font-bold uppercase tracking-wider shadow-sm whitespace-nowrap">
+                                              📝 Note
+                                            </span>
+                                            {it.start_time && (
+                                              <span className="text-[11px] font-semibold text-slate-600">{fmtTime(it.start_time)}</span>
+                                            )}
+                                          </div>
+                                          <p className="text-sm text-slate-800 leading-relaxed flex-1">{it.notes}</p>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeItem(it)}
+                                            className="mt-4 text-xs font-medium text-slate-500 hover:text-red-600 transition self-start"
+                                          >
+                                            Remove note
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div
+                                          draggable
+                                          onDragStart={(e) => {
+                                            e.dataTransfer.setData('text/plain', it.key);
+                                            e.dataTransfer.effectAllowed = 'move';
+                                            setDragKey(it.key);
+                                          }}
+                                          onDragEnd={() => { setDragKey(null); setDragOverDay(null); }}
+                                          onDragOver={(e) => e.preventDefault()}
+                                          onDrop={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            const key = e.dataTransfer.getData('text/plain') || dragKey;
+                                            if (key && key !== it.key) swapItems(key, it.key);
+                                            setDragOverDay(null);
+                                            setDragKey(null);
+                                          }}
+                                          title="Drag onto another day to move · drop on a card to swap"
+                                          className={`group/card relative flex-1 cursor-grab active:cursor-grabbing rounded-2xl transition-all duration-200 ${
+                                            dragKey === it.key ? 'opacity-40 scale-95 ring-2 ring-blue-400' : 'hover:shadow-lg'
+                                          }`}
+                                        >
+                                          <button
+                                            type="button"
+                                            draggable={false}
+                                            onClick={() => removeItem(it)}
+                                            title="Remove from trip"
+                                            aria-label={`Remove ${it.name} from this trip`}
+                                            className="absolute -top-2.5 -right-2.5 z-20 w-7 h-7 rounded-full bg-white border border-slate-300 text-slate-500 hover:text-red-600 hover:border-red-400 hover:bg-red-50 shadow-sm opacity-0 group-hover/card:opacity-100 focus:opacity-100 transition flex items-center justify-center"
+                                          >
+                                            <CloseIcon className="w-3.5 h-3.5" />
+                                          </button>
+                                          <Link href={`/listing/${it.listing_id}`} draggable={false} className="card-hover p-5 transition-all block h-full flex flex-col">
+                                            <div className="flex items-center justify-between gap-2 mb-3">
+                                              <span className="px-2.5 py-1 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-sm whitespace-nowrap">
+                                                {slotLabel(it)}
+                                              </span>
+                                              <select
+                                                value={(it.start_time ?? '09:00:00').slice(0, 5)}
+                                                onChange={(e) => changeItemTime(it.key, e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                draggable={false}
+                                                aria-label={`Edit time for ${it.name}`}
+                                                className="w-[5.75rem] shrink-0 px-1 py-1 rounded-lg border border-slate-300 text-[11px] font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                                              >
+                                                {!TIME_OPTIONS.includes((it.start_time ?? '09:00:00').slice(0, 5)) && (
+                                                  <option value={(it.start_time ?? '09:00:00').slice(0, 5)}>{fmtTime(it.start_time)}</option>
+                                                )}
+                                                {TIME_OPTIONS.map((opt) => (
+                                                  <option key={opt} value={opt} disabled={timeOptionDisabled(it, opt)}>
+                                                    {fmtTime(`${opt}:00`)}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                            <div className="flex-1 min-h-0">
+                                              <p className="font-bold text-slate-900 text-base truncate mb-1">{it.name}</p>
+                                              <p className="text-xs text-slate-500 truncate">
+                                                {it.listing_type ?? 'Place'}
+                                                {it.destination_name ? ` · ${it.destination_name}` : ''}
+                                              </p>
+                                            </div>
+                                            {it.rating != null && (
+                                              <p className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-1 text-sm font-bold text-amber-600">
+                                                <Star className="w-4 h-4" />
+                                                {Number(it.rating).toFixed(1)}
+                                              </p>
+                                            )}
+                                          </Link>
+                                        </div>
+                                      )}
                                     </div>
-                                    <p className="font-bold text-slate-900 text-base truncate mb-1">{it.name}</p>
-                                    <p className="text-xs text-slate-500 truncate">
-                                      {it.listing_type ?? 'Place'}
-                                      {it.destination_name ? ` · ${it.destination_name}` : ''}
-                                    </p>
-                                    {it.rating != null && (
-                                      <p className="mt-2 flex items-center gap-1 text-sm font-bold text-amber-600">
-                                        <Star className="w-4 h-4" />
-                                        {Number(it.rating).toFixed(1)}
-                                      </p>
+                                    {idx < arr.length - 1 && (
+                                      <button
+                                        type="button"
+                                        draggable={false}
+                                        onClick={() => { setShowNoteModal({ afterKey: it.key, date }); setNoteText(''); setNoteTime(''); }}
+                                        title="Add a note between these cards"
+                                        aria-label="Add a note between these cards"
+                                        className="absolute -right-3.5 top-1/2 -translate-y-1/2 z-10 w-7 h-7 rounded-full bg-white border border-slate-300 text-slate-500 hover:border-blue-500 hover:text-blue-600 flex items-center justify-center opacity-0 group-hover/note:opacity-100 focus:opacity-100 transition shadow-sm"
+                                      >
+                                        <PlusIcon className="w-3.5 h-3.5" />
+                                      </button>
                                     )}
-                                  </Link>
+                                  </div>
                                 ))}
                               </div>
                             </div>
@@ -1492,28 +1839,18 @@ export default function HomePage() {
               >
                 <div className="relative h-64 overflow-hidden bg-gradient-to-br from-slate-100 to-slate-200">
                   {l.image_url ? (
-                    <img
-                      src={l.image_url}
-                      alt={l.name}
-                      className="w-full h-full object-cover img-zoom"
-                    />
+                    <img src={l.image_url} alt={l.name} className="w-full h-full object-cover img-zoom" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-100 to-indigo-100">
                       <span className="text-5xl font-bold text-blue-300">{l.listing_type.charAt(0)}</span>
                     </div>
                   )}
-                  
-                  {/* Gradient overlay */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-                  
-                  {/* Type badge */}
                   <div className="absolute top-5 left-5">
                     <span className="px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider bg-white/95 text-slate-700 shadow-lg backdrop-blur-sm">
                       {l.listing_type}
                     </span>
                   </div>
-
-                  {/* Rating badge */}
                   {l.average_rating != null && (
                     <div className="absolute top-5 right-5">
                       <div className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-black/80 backdrop-blur-sm text-white text-sm font-bold shadow-lg">
@@ -1524,12 +1861,8 @@ export default function HomePage() {
                       </div>
                     </div>
                   )}
-
-                  {/* Bottom info overlay */}
                   <div className="absolute bottom-0 left-0 right-0 p-6">
-                    <h3 className="font-bold text-white text-2xl leading-tight mb-2 line-clamp-2">
-                      {l.name}
-                    </h3>
+                    <h3 className="font-bold text-white text-2xl leading-tight mb-2 line-clamp-2">{l.name}</h3>
                     <div className="flex items-center gap-2 text-white/95 text-base font-medium">
                       <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                         <path d="M12 21s-7-5.1-7-11a7 7 0 1114 0c0 5.9-7 11-7 11z" strokeLinecap="round" />
@@ -1541,8 +1874,6 @@ export default function HomePage() {
                     </div>
                   </div>
                 </div>
-
-                {/* Card body */}
                 <div className="p-6">
                   <p className="text-sm text-slate-600 leading-relaxed line-clamp-2 mb-5">
                     {subtypeMap[l.listing_id]
@@ -1672,38 +2003,23 @@ export default function HomePage() {
         <div className="card-hover p-8 flex flex-col">
           <h2 className="text-xl font-bold text-slate-900 mb-6">Quick actions</h2>
           <div className="space-y-3 flex-1 flex flex-col justify-between gap-3">
-            <Link
-              href="/my-trips"
-              className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm"
-            >
+            <Link href="/my-trips" className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm">
               My trips & bookings
               <Chevron className="w-5 h-5 text-slate-400" />
             </Link>
-            <Link
-              href="/search"
-              className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm"
-            >
+            <Link href="/search" className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm">
               Search destinations
               <Chevron className="w-5 h-5 text-slate-400" />
             </Link>
-            <Link
-              href="/owner"
-              className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm"
-            >
+            <Link href="/owner" className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm">
               Manage my listings
               <Chevron className="w-5 h-5 text-slate-400" />
             </Link>
-            <Link
-              href="/apply"
-              className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm"
-            >
+            <Link href="/apply" className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm">
               List your place
               <Chevron className="w-5 h-5 text-slate-400" />
             </Link>
-            <Link
-              href="/profile"
-              className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm"
-            >
+            <Link href="/profile" className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm">
               Your profile & preferences
               <Chevron className="w-5 h-5 text-slate-400" />
             </Link>
@@ -1828,6 +2144,63 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Add Note Modal */}
+      {showNoteModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowNoteModal(null)}>
+          <div className="card-hover p-8 max-w-md w-full shadow-2xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-slate-900">Add a note</h3>
+              <button type="button" onClick={() => setShowNoteModal(null)} className="text-slate-400 hover:text-slate-600 transition">
+                <CloseIcon className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Note</label>
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  maxLength={300}
+                  rows={3}
+                  autoFocus
+                  placeholder='e.g., "Withdraw cash at the bank before the next stop"'
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition bg-white"
+                />
+                <p className="text-xs text-slate-400 text-right mt-1">{noteText.length}/300</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Time <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <input
+                  type="time"
+                  value={noteTime}
+                  onChange={(e) => setNoteTime(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition bg-white"
+                />
+              </div>
+            </div>
+            <div className="flex gap-4 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowNoteModal(null)}
+                className="flex-1 py-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:border-slate-400 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={addNoteBetween}
+                disabled={!noteText.trim()}
+                className="flex-1 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60 btn-press"
+              >
+                Add note
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Destination Picker Modal */}
       {destPickerOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setDestPickerOpen(false)}>
@@ -1906,6 +2279,55 @@ export default function HomePage() {
             setShowEditTripModal(false);
             await refreshTrips();
           }}
+        />
+      )}
+
+      {/* Confirm remove place / note from trip */}
+      {pendingRemove && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setPendingRemove(null)}>
+          <div className="card-hover p-8 max-w-md w-full shadow-2xl animate-slide-up" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 shrink-0 rounded-full bg-red-50 text-red-600 flex items-center justify-center">
+                <TrashIcon className="w-6 h-6" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-slate-900">
+                  {pendingRemove.listing_type === 'Note' ? 'Delete this note?' : 'Remove this place?'}
+                </h3>
+                <p className="text-sm text-slate-500 truncate mt-0.5">{pendingRemove.name}</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-8">
+              {pendingRemove.listing_type === 'Note'
+                ? 'This note will be permanently removed from your itinerary.'
+                : 'This place will be taken off your itinerary. You can add it back anytime from the suggestions.'}
+            </p>
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={() => setPendingRemove(null)}
+                className="flex-1 py-4 rounded-xl border border-slate-300 bg-white text-base font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => { await performRemove(pendingRemove); }}
+                className="flex-1 py-4 rounded-xl bg-red-600 text-white text-base font-semibold hover:bg-red-700 active:bg-red-800 transition shadow-lg btn-press"
+              >
+                {pendingRemove.listing_type === 'Note' ? 'Delete note' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Trip Modal — finished trips only */}
+      {showReviewTripModal && selectedTrip && userId && (
+        <ReviewTripModal
+          trip={selectedTrip}
+          userId={userId}
+          onClose={() => setShowReviewTripModal(false)}
         />
       )}
 
@@ -2097,6 +2519,232 @@ function EditTripModal({ trip, onClose, onUpdated }: { trip: TripData; onClose: 
             {busy ? 'Updating…' : 'Update trip'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Review Trip Modal — stepped UI, one place at a time
+// ─────────────────────────────────────────────────────────────
+function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: string; onClose: () => void }) {
+  const supabase = createClient();
+  // Snapshot the places once — walking with a derived "first not-done" item avoids skip bugs
+  const [places] = useState<TripItem[]>(() => trip.items.filter((i) => i.listing_type !== 'Note'));
+  const [doneKeys, setDoneKeys] = useState<Set<string>>(new Set());
+  const [rating, setRating] = useState(0);
+  const [hoverStar, setHoverStar] = useState(0);
+  const [title, setTitle] = useState('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  const current = places.find((p) => !doneKeys.has(p.key)) ?? null;
+  const doneCount = places.filter((p) => doneKeys.has(p.key)).length;
+  const allDone = !current;
+  const pct = places.length ? Math.round((doneCount / places.length) * 100) : 100;
+
+  // Pre-mark places the user already reviewed
+  useEffect(() => {
+    async function checkExisting() {
+      const listingIds = [...new Set(places.map((p) => p.listing_id))];
+      if (!listingIds.length) { setChecking(false); return; }
+      const { data } = await supabase
+        .from('reviews')
+        .select('listing_id')
+        .eq('user_id', userId)
+        .in('listing_id', listingIds);
+      const reviewed = new Set((data ?? []).map((r: any) => r.listing_id));
+      setDoneKeys(new Set(places.filter((p) => reviewed.has(p.listing_id)).map((p) => p.key)));
+      setChecking(false);
+    }
+    checkExisting();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function resetForm() {
+    setRating(0); setHoverStar(0); setTitle(''); setText(''); setErr(null);
+  }
+
+  async function recalcAverage(listingId: string) {
+    // Recompute the listing average from all its reviews (no RPC dependency)
+    const { data: all } = await supabase.from('reviews').select('rating').eq('listing_id', listingId);
+    if (!all || !all.length) return;
+    const avg = all.reduce((s, r: any) => s + Number(r.rating), 0) / all.length;
+    await supabase.from('listings').update({ average_rating: Math.round(avg * 10) / 10 }).eq('listing_id', listingId);
+  }
+
+  async function submit(markDoneOnly = false) {
+    if (!current) return;
+    if (!markDoneOnly && rating < 1) {
+      setErr('Tap a star to rate this place.');
+      return;
+    }
+    setErr(null);
+    setBusy(true);
+    try {
+      if (!markDoneOnly) {
+        const { error } = await supabase.from('reviews').insert({
+          review_id: `REV-${Date.now().toString().slice(-8)}`,
+          listing_id: current.listing_id,
+          user_id: userId,
+          rating,
+          title: title.trim() || null,
+          review_text: text.trim() || null,
+          visit_date: trip.end_date || new Date().toISOString().slice(0, 10),
+          submission_date: new Date().toISOString().slice(0, 10),
+          helpful_votes_count: 0,
+          photo_url: null,
+        });
+        if (error) throw error;
+        await recalcAverage(current.listing_id);
+      }
+      setDoneKeys((prev) => new Set(prev).add(current.key));
+      resetForm();
+    } catch (e: any) {
+      setErr(e?.message ?? 'Could not save your review.');
+    }
+    setBusy(false);
+  }
+
+  const starLabels = ['', 'Terrible', 'Bad', 'Okay', 'Good', 'Excellent'];
+  const shown = hoverStar || rating;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl animate-slide-up max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-xl font-bold text-slate-900">Review your trip</h3>
+            <p className="text-xs text-slate-500 mt-0.5">{trip.trip_name ?? 'This trip'} · {fmtDate(trip.end_date)}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-600 transition">
+            <CloseIcon className="w-6 h-6" />
+          </button>
+        </div>
+
+        {checking ? (
+          <div className="py-10 text-center text-sm text-slate-500">Checking your reviews…</div>
+        ) : places.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-4xl mb-3">🗺️</p>
+            <p className="text-sm text-slate-600">This trip has no places to review yet.</p>
+            <button type="button" onClick={onClose} className="mt-6 w-full py-3 rounded-xl bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition">Close</button>
+          </div>
+        ) : allDone ? (
+          <div className="text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-4 text-3xl">🎉</div>
+            <h4 className="text-xl font-bold text-slate-900 mb-2">
+              {doneCount === places.length ? 'All reviewed!' : 'All caught up!'}
+            </h4>
+            <p className="text-sm text-slate-500 mb-6">
+              {doneCount === places.length
+                ? 'Your reviews are live on each place page — thank you for helping other travelers.'
+                : 'You have already reviewed every place on this trip.'}
+            </p>
+            <button type="button" onClick={onClose} className="w-full py-3.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition btn-press">Done</button>
+          </div>
+        ) : current ? (
+          <>
+            {/* Progress */}
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+              <span>Place {doneCount + 1} of {places.length}</span>
+              <span>{pct}%</span>
+            </div>
+            <div className="w-full h-1.5 bg-slate-100 rounded-full mb-6 overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+            </div>
+
+            {/* Place being reviewed */}
+            <div className="flex items-center gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl mb-6">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shrink-0 flex items-center justify-center text-white font-bold text-xl shadow-sm">
+                {current.listing_type?.charAt(0) ?? 'P'}
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-slate-900 truncate">{current.name}</p>
+                <p className="text-xs text-slate-500 truncate mt-0.5">
+                  {current.listing_type}
+                  {current.destination_name ? ` · ${current.destination_name}` : ''}
+                </p>
+              </div>
+            </div>
+
+            {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>}
+
+            {/* Stars */}
+            <div className="mb-5">
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Your rating</label>
+              <div className="flex items-center gap-1.5">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setRating(n)}
+                    onMouseEnter={() => setHoverStar(n)}
+                    onMouseLeave={() => setHoverStar(0)}
+                    aria-label={`${n} star${n === 1 ? '' : 's'}`}
+                    className={`p-1 rounded-lg transition hover:scale-110 ${n <= shown ? 'text-amber-400' : 'text-slate-300'}`}
+                  >
+                    <Star className="w-9 h-9" />
+                  </button>
+                ))}
+                {shown > 0 && <span className="ml-2 text-sm font-semibold text-slate-600">{starLabels[shown]}</span>}
+              </div>
+            </div>
+
+            {/* Title */}
+            <div className="mb-4">
+              <div className="flex items-baseline justify-between mb-1.5">
+                <label className="block text-sm font-semibold text-slate-700">Headline <span className="font-normal text-slate-400">(optional)</span></label>
+                <span className="text-xs text-slate-400">{title.length}/60</span>
+              </div>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={60}
+                placeholder="Sum it up in a few words"
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition bg-white"
+              />
+            </div>
+
+            {/* Body */}
+            <div className="mb-6">
+              <div className="flex items-baseline justify-between mb-1.5">
+                <label className="block text-sm font-semibold text-slate-700">Your review <span className="font-normal text-slate-400">(optional)</span></label>
+                <span className="text-xs text-slate-400">{text.length}/300</span>
+              </div>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={3}
+                maxLength={300}
+                placeholder="What stood out? Food, service, vibes, tips for other travelers…"
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition bg-white resize-none"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => submit(true)}
+                disabled={busy}
+                className="flex-1 py-3.5 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 transition disabled:opacity-60"
+              >
+                Skip this one
+              </button>
+              <button
+                type="button"
+                onClick={() => submit(false)}
+                disabled={busy || rating < 1}
+                className="flex-1 py-3.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition shadow-sm disabled:opacity-60 btn-press"
+              >
+                {busy ? 'Saving…' : doneCount + 1 === places.length ? 'Submit & finish' : 'Submit & next'}
+              </button>
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   );
