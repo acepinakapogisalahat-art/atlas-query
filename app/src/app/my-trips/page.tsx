@@ -7,13 +7,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 import { useRole } from '@/utils/supabase/role';
 
-type TripItemLite = {
-  name: string;
-  listing_id: string | null;
-  planned_date: string | null;
-  isNote?: boolean;
-};
-
+type TripItemLite = { name: string; listing_id: string | null; planned_date: string | null; isNote: boolean };
 type TripRow = {
   trip_id: string;
   trip_name: string | null;
@@ -24,7 +18,6 @@ type TripRow = {
   placesCount: number;
   reviewedCount: number;
 };
-
 type BookingRow = {
   booking_id: string;
   listing_id: string;
@@ -86,11 +79,7 @@ function fmtDate(d: string | null) {
 
 function tripChip(status: string) {
   const cls =
-    status === 'finished'
-      ? 'bg-slate-100 text-slate-600'
-      : status === 'ongoing'
-        ? 'bg-blue-50 text-blue-700'
-        : 'bg-emerald-50 text-emerald-700';
+    status === 'finished' ? 'bg-slate-100 text-slate-600' : status === 'ongoing' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700';
   const label = status === 'finished' ? 'Finished' : status === 'ongoing' ? 'Ongoing' : 'Upcoming';
   return <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold ${cls}`}>{label}</span>;
 }
@@ -98,25 +87,16 @@ function tripChip(status: string) {
 function bookingChip(status: string | null) {
   const s = status ?? 'pending';
   const cls =
-    s === 'confirmed'
-      ? 'bg-emerald-50 text-emerald-700'
-      : s === 'rejected'
-        ? 'bg-rose-50 text-rose-700'
-        : s === 'cancelled'
-          ? 'bg-slate-100 text-slate-600'
-          : 'bg-amber-50 text-amber-700';
+    s === 'confirmed' ? 'bg-emerald-50 text-emerald-700' : s === 'rejected' ? 'bg-rose-50 text-rose-700' : s === 'cancelled' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700';
   return <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium capitalize ${cls}`}>{s}</span>;
 }
 
 function StatTile({ label, value, accent }: { label: string; value: string; accent?: 'blue' | 'amber' | 'emerald' | 'slate' }) {
   const ring =
-    accent === 'blue'
-      ? 'border-blue-200 bg-blue-50/40'
-      : accent === 'amber'
-        ? 'border-amber-200 bg-amber-50/40'
-        : accent === 'emerald'
-          ? 'border-emerald-200 bg-emerald-50/40'
-          : 'border-slate-200 bg-white';
+    accent === 'blue' ? 'border-blue-200 bg-blue-50/40'
+    : accent === 'amber' ? 'border-amber-200 bg-amber-50/40'
+    : accent === 'emerald' ? 'border-emerald-200 bg-emerald-50/40'
+    : 'border-slate-200 bg-white';
   return (
     <div className={`rounded-2xl p-5 shadow-sm border text-center ${ring}`}>
       <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">{label}</p>
@@ -129,7 +109,6 @@ export default function MyTripsPage() {
   const supabase = createClient();
   const role = useRole();
   const router = useRouter();
-
   const [loading, setLoading] = useState(true);
   const [trips, setTrips] = useState<TripRow[]>([]);
   const [bookings, setBookings] = useState<BookingRow[]>([]);
@@ -148,61 +127,49 @@ export default function MyTripsPage() {
     if (!role.loading && (role.isOwner || role.isAdmin)) router.replace('/business');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role.loading, role.isOwner, role.isAdmin]);
-function openInPlanner(tripId: string) {
-  if (typeof window !== 'undefined') {
-    window.sessionStorage.setItem('tm-open-trip', tripId);
-    window.sessionStorage.setItem('tm-scroll-planner', '1');
-  }
-  router.push(`/?trip=${encodeURIComponent(tripId)}`);
-}
+
   async function load(uid: string) {
     const { data: t } = await supabase.from('trips').select('*').eq('user_id', uid).order('start_date', { ascending: false });
     const rows = (t ?? []) as any[];
     const tripIds = rows.map((r) => r.trip_id);
-
     const itemsByTrip: Record<string, TripItemLite[]> = {};
     const allListingIds = new Set<string>();
 
     if (tripIds.length) {
       const { data: items } = await supabase.from('trip_items').select('*').in('trip_id', tripIds);
-
-      const listingIds = [...new Set((items ?? []).map((i: any) => i.listing_id).filter(Boolean))] as string[];
+      const listingIds = [...new Set((items ?? []).map((i: any) => i.listing_id).filter((id: any) => id && id !== 'NOTE'))] as string[];
       listingIds.forEach((id) => allListingIds.add(id));
-
       const nameMap: Record<string, string> = {};
       if (listingIds.length) {
         const { data: ls } = await supabase.from('listings').select('listing_id, name').in('listing_id', listingIds);
-        (ls ?? []).forEach((l: any) => {
-          nameMap[l.listing_id] = l.name;
-        });
+        (ls ?? []).forEach((l: any) => { nameMap[l.listing_id] = l.name; });
       }
-
       (items ?? []).forEach((i: any) => {
-        const isNote = i.listing_id == null;
+        const isNote = i.listing_id == null || i.listing_id === 'NOTE';
         (itemsByTrip[i.trip_id] ??= []).push({
           name: isNote ? (i.notes ?? 'Note') : nameMap[i.listing_id] ?? i.listing_id,
-          listing_id: i.listing_id ?? null,
+          listing_id: isNote ? null : i.listing_id,
           planned_date: i.planned_date ?? null,
           isNote,
         });
       });
     }
 
-    const reviewedByListing = new Set<string>();
+    // Which listings has this user reviewed?
+    const reviewedSet = new Set<string>();
     if (allListingIds.size) {
       const { data: revs } = await supabase
         .from('reviews')
         .select('listing_id')
         .eq('user_id', uid)
         .in('listing_id', [...allListingIds]);
-      (revs ?? []).forEach((r: any) => reviewedByListing.add(r.listing_id));
+      (revs ?? []).forEach((r: any) => reviewedSet.add(r.listing_id));
     }
 
     setTrips(
       rows.map((r) => {
         const items = itemsByTrip[r.trip_id] ?? [];
-        const placeItems = items.filter((it) => it.listing_id);
-        const reviewedCount = placeItems.filter((it) => reviewedByListing.has(it.listing_id as string)).length;
+        const placeIds = [...new Set(items.filter((it) => it.listing_id).map((it) => it.listing_id as string))];
         return {
           trip_id: r.trip_id,
           trip_name: r.trip_name ?? null,
@@ -210,8 +177,8 @@ function openInPlanner(tripId: string) {
           end_date: r.end_date ?? null,
           status: r.status ?? null,
           items,
-          placesCount: placeItems.length,
-          reviewedCount,
+          placesCount: placeIds.length,
+          reviewedCount: placeIds.filter((id) => reviewedSet.has(id)).length,
         };
       })
     );
@@ -222,9 +189,7 @@ function openInPlanner(tripId: string) {
     if (lids.length) {
       const { data: ls } = await supabase.from('listings').select('listing_id, name, listing_type, image_url').in('listing_id', lids);
       const lm: Record<string, any> = {};
-      (ls ?? []).forEach((l: any) => {
-        lm[l.listing_id] = l;
-      });
+      (ls ?? []).forEach((l: any) => { lm[l.listing_id] = l; });
       brows.forEach((x) => {
         x.listing_name = lm[x.listing_id]?.name;
         x.listing_type = lm[x.listing_id]?.listing_type;
@@ -256,43 +221,39 @@ function openInPlanner(tripId: string) {
         <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-md text-center shadow-sm">
           <h1 className="text-2xl font-semibold text-slate-900 mb-2">My trips & bookings</h1>
           <p className="text-slate-500 text-sm">
-            <Link href="/login" className="text-blue-600 underline">
-              Sign in
-            </Link>{' '}
-            to see your trips and booking requests.
+            <Link href="/login" className="text-blue-600 underline">Sign in</Link> to see your trips and booking requests.
           </p>
         </div>
       </main>
     );
   }
 
+  const needsReview = (t: TripRow) => getTripStatus(t) === 'finished' && t.placesCount > 0 && t.reviewedCount < t.placesCount;
+  const fullyReviewed = (t: TripRow) => getTripStatus(t) === 'finished' && t.placesCount > 0 && t.reviewedCount >= t.placesCount;
+
+  // Active first → finished needing review → fully reviewed (gray) last
+  const sortedTrips = [...trips].sort((a, b) => {
+    const rank = (t: TripRow) => (getTripStatus(t) !== 'finished' ? 0 : needsReview(t) ? 1 : 2);
+    return rank(a) - rank(b) || (b.start_date ?? '').localeCompare(a.start_date ?? '');
+  });
+
   const activeTrips = trips.filter((t) => getTripStatus(t) !== 'finished');
   const finishedTrips = trips.filter((t) => getTripStatus(t) === 'finished');
   const pendingBookings = bookings.filter((b) => (b.status ?? 'pending') === 'pending');
-  const pendingReviews = finishedTrips.reduce((sum, t) => sum + Math.max(0, t.placesCount - t.reviewedCount), 0);
+  const pendingReviews = trips.filter(needsReview).length;
 
-  const filteredTrips = trips.filter((t) => {
-    if (tripFilter === 'all') return true;
-    return getTripStatus(t) === tripFilter;
-  });
-
-  const filterCount = (f: typeof tripFilter) => {
-    if (f === 'all') return trips.length;
-    return trips.filter((t) => getTripStatus(t) === f).length;
-  };
+  const filteredTrips = sortedTrips.filter((t) => tripFilter === 'all' || getTripStatus(t) === tripFilter);
+  const filterCount = (f: typeof tripFilter) =>
+    f === 'all' ? trips.length : trips.filter((t) => getTripStatus(t) === f).length;
 
   const tabCls = (on: boolean) =>
     `px-4 py-2 rounded-full text-sm font-medium border transition ${
-      on
-        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-        : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400 hover:text-slate-800'
+      on ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400 hover:text-slate-800'
     }`;
 
   const filterCls = (on: boolean) =>
     `px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
-      on
-        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+      on ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
     }`;
 
   return (
@@ -301,12 +262,24 @@ function openInPlanner(tripId: string) {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-900">My trips & bookings</h1>
-            <p className="mt-1 text-sm text-slate-500">Everything you&apos;ve planned, booked, and reviewed — in one place.</p>
+            <p className="mt-1 text-sm text-slate-500">Everything you've planned, booked, and reviewed — in one place.</p>
           </div>
           <Link href="/" className="text-sm font-medium text-blue-600 hover:text-blue-700 whitespace-nowrap">
             ← Back to dashboard
           </Link>
         </div>
+
+        {/* Review alert */}
+        {pendingReviews > 0 && (
+          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 flex items-center gap-3">
+            <span className="w-10 h-10 rounded-full bg-amber-400 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <StarIcon className="w-5 h-5" />
+            </span>
+            <p className="flex-1 text-sm font-medium text-amber-800">
+              {pendingReviews} finished trip{pendingReviews === 1 ? '' : 's'} still need{pendingReviews === 1 ? 's' : ''} reviews — tap "Review trip" below to rate the places you visited.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8 opacity-0 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
           <StatTile label="Active trips" value={String(activeTrips.length)} accent="blue" />
@@ -335,10 +308,7 @@ function openInPlanner(tripId: string) {
               <p className="mt-1 text-sm text-slate-500 max-w-md mx-auto">
                 Create your first trip on the dashboard and start saving places into a day-by-day plan.
               </p>
-              <Link
-                href="/"
-                className="inline-block mt-6 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition shadow-sm"
-              >
+              <Link href="/" className="inline-block mt-6 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition shadow-sm">
                 Open trip planner
               </Link>
             </div>
@@ -347,7 +317,7 @@ function openInPlanner(tripId: string) {
               <div className="flex flex-wrap gap-2 mb-5">
                 {(['all', 'upcoming', 'ongoing', 'finished'] as const).map((f) => (
                   <button key={f} type="button" onClick={() => setTripFilter(f)} className={filterCls(tripFilter === f)}>
-                    {f === 'all' ? 'All' : f === 'upcoming' ? 'Upcoming' : f === 'ongoing' ? 'Ongoing' : 'Finished'} ({filterCount(f)})
+                    {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)} ({filterCount(f)})
                   </button>
                 ))}
               </div>
@@ -355,21 +325,24 @@ function openInPlanner(tripId: string) {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-0 animate-fade-in-up" style={{ animationDelay: '200ms' }}>
                 {filteredTrips.map((t) => {
                   const st = getTripStatus(t);
-                  const needsReview = st === 'finished' && t.placesCount > 0 && t.reviewedCount < t.placesCount;
-                  const allReviewed = st === 'finished' && t.placesCount > 0 && t.reviewedCount >= t.placesCount;
+                  const nr = needsReview(t);
+                  const fr = fullyReviewed(t);
                   const progress = t.placesCount > 0 ? Math.round((t.reviewedCount / t.placesCount) * 100) : 0;
                   const placeItems = t.items.filter((it) => !it.isNote);
-
                   return (
-                    <div key={t.trip_id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition flex flex-col">
+                    <div
+                      key={t.trip_id}
+                      className={`border rounded-2xl p-5 shadow-sm transition flex flex-col ${
+                        fr
+                          ? 'border-slate-200 bg-slate-50/80 opacity-70 saturate-[.75] hover:opacity-90'
+                          : 'bg-white border-slate-200 hover:shadow-md'
+                      }`}
+                    >
                       <div className="flex items-start justify-between gap-3">
-                        <p className="font-semibold text-slate-900 truncate">{t.trip_name ?? `Trip ${t.trip_id}`}</p>
+                        <p className={`font-semibold truncate ${fr ? 'text-slate-500' : 'text-slate-900'}`}>{t.trip_name ?? `Trip ${t.trip_id}`}</p>
                         {tripChip(st)}
                       </div>
-
-                      <p className="mt-1 text-xs text-slate-400">
-                        {fmtDate(t.start_date)} → {fmtDate(t.end_date)}
-                      </p>
+                      <p className="mt-1 text-xs text-slate-400">{fmtDate(t.start_date)} → {fmtDate(t.end_date)}</p>
 
                       <div className="mt-3 flex-1">
                         {placeItems.length > 0 ? (
@@ -388,17 +361,16 @@ function openInPlanner(tripId: string) {
                         )}
                       </div>
 
+                      {/* Review progress for finished trips */}
                       {st === 'finished' && t.placesCount > 0 && (
                         <div className="mt-4">
                           <div className="flex items-center justify-between text-xs font-medium text-slate-500 mb-1.5">
                             <span>Reviews</span>
-                            <span>
-                              {t.reviewedCount}/{t.placesCount}
-                            </span>
+                            <span>{t.reviewedCount}/{t.placesCount}</span>
                           </div>
                           <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all ${allReviewed ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                              className={`h-full rounded-full transition-all ${fr ? 'bg-emerald-500' : 'bg-amber-500'}`}
                               style={{ width: `${progress}%` }}
                             />
                           </div>
@@ -407,18 +379,22 @@ function openInPlanner(tripId: string) {
 
                       <div className="mt-4 flex items-center justify-between gap-3">
                         <span className="text-xs text-slate-400">
-                          {t.placesCount} place{t.placesCount === 1 ? '' : 's'}
+                          {placeItems.length} place{placeItems.length === 1 ? '' : 's'}
                         </span>
-
                         <div className="flex items-center gap-2 shrink-0">
-                          {allReviewed && (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                          {nr && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                              Needs review
+                            </span>
+                          )}
+                          {fr && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400">
                               <CheckIcon className="w-3 h-3" />
                               Reviewed
                             </span>
                           )}
-
-                          {needsReview ? (
+                          {nr ? (
                             <Link
                               href={`/my-trips/${t.trip_id}/review`}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition shadow-sm"
@@ -427,18 +403,14 @@ function openInPlanner(tripId: string) {
                               Review trip
                             </Link>
                           ) : (
-                            <button
-  type="button"
-  onClick={() => openInPlanner(t.trip_id)}
-  className="text-xs font-medium text-blue-600 hover:text-blue-700"
->
-  Open in planner →
-</button>
+                            <Link href={`/?trip=${t.trip_id}`} className="text-xs font-medium text-blue-600 hover:text-blue-700">
+                              Open in planner →
+                            </Link>
                           )}
                         </div>
                       </div>
 
-                      {needsReview && (
+                      {nr && (
                         <Link href={`/?trip=${t.trip_id}`} className="mt-2 text-[11px] font-medium text-slate-500 hover:text-slate-700">
                           Or open in planner
                         </Link>
@@ -464,10 +436,7 @@ function openInPlanner(tripId: string) {
             <p className="mt-1 text-sm text-slate-500 max-w-md mx-auto">
               When you request dates on a listing, the request and its status will show up here.
             </p>
-            <Link
-              href="/search"
-              className="inline-block mt-6 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition shadow-sm"
-            >
+            <Link href="/search" className="inline-block mt-6 px-6 py-3 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition shadow-sm">
               Browse places
             </Link>
           </div>
@@ -484,10 +453,9 @@ function openInPlanner(tripId: string) {
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-900 truncate">{b.listing_name ?? b.listing_id}</p>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {b.listing_type ?? 'Place'} · {fmtDate(b.check_in)} → {fmtDate(b.check_out)} · {b.guests ?? 1} guest
-                      {(b.guests ?? 1) === 1 ? '' : 's'}
+                      {b.listing_type ?? 'Place'} · {fmtDate(b.check_in)} → {fmtDate(b.check_out)} · {b.guests ?? 1} guest{(b.guests ?? 1) === 1 ? '' : 's'}
                     </p>
-                    {b.special_requests && <p className="text-xs text-slate-500 mt-1 truncate">&quot;{b.special_requests}&quot;</p>}
+                    {b.special_requests && <p className="text-xs text-slate-500 mt-1 truncate">"{b.special_requests}"</p>}
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">

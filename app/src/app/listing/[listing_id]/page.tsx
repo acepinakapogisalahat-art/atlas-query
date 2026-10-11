@@ -1150,7 +1150,7 @@ function ReviewForm({ listingId, onSubmitted }: { listingId: string; onSubmitted
         user_id: userId,
         rating,
         title: title || null,
-        review_text: text,
+        review_text: text.trim() || `(rated ${rating}/5 — no written review)`,
         visit_date: visitDate || null,
         submission_date: new Date().toISOString().slice(0, 10),
         helpful_votes_count: 0,

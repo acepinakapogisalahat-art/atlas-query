@@ -225,6 +225,12 @@ export default function HomePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showReviewTripModal, setShowReviewTripModal] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<TripItem | null>(null);
+  // Sidebar filter — "active" hides finished trips to keep the list clean
+  const [tripFilter, setTripFilter] = useState<'active' | 'upcoming' | 'ongoing' | 'finished'>('active');
+  // Per-trip review progress: { total places, reviewed places }
+  const [tripReviewMap, setTripReviewMap] = useState<Record<string, { total: number; reviewed: number }>>({});
+  // Bumped after each submitted review so badges/grays/sorting refresh live
+  const [reviewVersion, setReviewVersion] = useState(0);
   const [plannerQuery, setPlannerQuery] = useState('');
   const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [addingId, setAddingId] = useState<string | null>(null);
@@ -255,7 +261,7 @@ export default function HomePage() {
     | null
   >(null);
   const hoverTimer = useRef<any>(null);
-const plannerScrolledRef = useRef(false);
+  const plannerScrolledRef = useRef(false);
   const searchParams = useSearchParams();
 
   async function loadForecast(loc: string | null) {
@@ -903,17 +909,13 @@ const plannerScrolledRef = useRef(false);
         const usedTimes = getUsedTimes(date);
         const preferred = ['09:00:00', '13:00:00', '18:00:00'];
         const pref = preferred[slotIdx];
-        // 1. Preferred time is allowed and free
         if (allowed.includes(pref) && !usedTimes.has(pref)) {
           usedTimes.add(pref); return pref;
         }
-        // 2. Any allowed time is free
         for (const t of allowed) {
           if (!usedTimes.has(t)) { usedTimes.add(t); return t; }
         }
-        // 3. Preferred time is free (even if not strictly "allowed")
         if (!usedTimes.has(pref)) { usedTimes.add(pref); return pref; }
-        // 4. Fallback: generate a unique 30-min offset time
         const baseHour = [9, 13, 18][slotIdx];
         let h = baseHour, m = 0;
         while (usedTimes.has(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`)) {
@@ -1044,6 +1046,33 @@ const plannerScrolledRef = useRef(false);
   const capacity = tripStops.length > 0 ? totalAllocated * 3 : tripDays ? tripDays * 3 : 6;
   const placeCount = selectedTrip ? selectedTrip.items.filter((i) => i.listing_type !== 'Note').length : 0;
 
+  // ---------- Review progress helpers ----------
+  function tripReviewInfo(t: TripData) {
+    return tripReviewMap[t.trip_id] ?? { total: 0, reviewed: 0 };
+  }
+  function tripNeedsReview(t: TripData) {
+    const info = tripReviewInfo(t);
+    return getTripStatus(t) === 'finished' && info.total > 0 && info.reviewed < info.total;
+  }
+  function tripFullyReviewed(t: TripData) {
+    const info = tripReviewInfo(t);
+    return getTripStatus(t) === 'finished' && info.total > 0 && info.reviewed >= info.total;
+  }
+
+  const pendingReviewCount = selectedTrip ? Math.max(0, tripReviewInfo(selectedTrip).total - tripReviewInfo(selectedTrip).reviewed) : 0;
+  const tripsNeedingReviewCount = trips.filter(tripNeedsReview).length;
+
+  // Active first → finished needing review → fully reviewed (gray) last
+  const sortedTrips = [...trips].sort((a, b) => {
+    const rank = (t: TripData) => (getTripStatus(t) !== 'finished' ? 0 : tripNeedsReview(t) ? 1 : 2);
+    return rank(a) - rank(b) || (b.start_date ?? '').localeCompare(a.start_date ?? '');
+  });
+  const filteredTrips = sortedTrips.filter((t) => {
+    const st = getTripStatus(t);
+    if (tripFilter === 'active') return st !== 'finished';
+    return st === tripFilter;
+  });
+
   const plannedDates = selectedTrip
     ? ([...new Set(selectedTrip.items.map((i) => i.planned_date).filter(Boolean))] as string[]).sort()
     : [];
@@ -1097,50 +1126,84 @@ const plannerScrolledRef = useRef(false);
   }, [selectedTrip?.trip_id, plannedDates.length]);
 
   useEffect(() => {
-  const fromUrl = searchParams.get('trip');
-  const fromSession =
-    typeof window !== 'undefined' ? window.sessionStorage.getItem('tm-open-trip') : null;
-  const t = fromUrl ?? fromSession;
-
-  if (t && trips.some((x) => x.trip_id === t)) {
-    setSelectedTripId(t);
-    if (fromSession && typeof window !== 'undefined') {
-      window.sessionStorage.removeItem('tm-open-trip');
+    const fromUrl = searchParams.get('trip');
+    const fromSession =
+      typeof window !== 'undefined' ? window.sessionStorage.getItem('tm-open-trip') : null;
+    const t = fromUrl ?? fromSession;
+    if (t && trips.some((x) => x.trip_id === t)) {
+      setSelectedTripId(t);
+      if (fromSession && typeof window !== 'undefined') {
+        window.sessionStorage.removeItem('tm-open-trip');
+      }
     }
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [trips]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trips]);
 
   // Arriving via ?trip= deep link → once the planner is really on screen
   // (skeleton gone, section mounted), smooth-scroll to it. The App Router
   // ignores #hash navigation, and the section doesn't exist during the
   // skeleton, so we trigger the scroll manually with a one-shot lock.
-useEffect(() => {
-  if (plannerScrolledRef.current) return;
+  useEffect(() => {
+    if (plannerScrolledRef.current) return;
+    const fromUrl = Boolean(searchParams.get('trip'));
+    const fromSession =
+      typeof window !== 'undefined' &&
+      window.sessionStorage.getItem('tm-scroll-planner') === '1';
+    if (!fromUrl && !fromSession) return;
+    if (role.authId && routing === null) return;
+    const el = document.getElementById('trip-planner');
+    if (!el) return;
+    plannerScrolledRef.current = true;
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem('tm-scroll-planner');
+      window.sessionStorage.removeItem('tm-open-trip');
+    }
+    requestAnimationFrame(() =>
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, role.authId, routing, trips, selectedTripId]);
 
-  const fromUrl = Boolean(searchParams.get('trip'));
-  const fromSession =
-    typeof window !== 'undefined' &&
-    window.sessionStorage.getItem('tm-scroll-planner') === '1';
-
-  if (!fromUrl && !fromSession) return;
-  if (role.authId && routing === null) return;
-
-  const el = document.getElementById('trip-planner');
-  if (!el) return;
-
-  plannerScrolledRef.current = true;
-
-  if (typeof window !== 'undefined') {
-    window.sessionStorage.removeItem('tm-scroll-planner');
-    window.sessionStorage.removeItem('tm-open-trip');
-  }
-
-  requestAnimationFrame(() =>
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [searchParams, role.authId, routing, trips, selectedTripId]);
+  // Review progress for EVERY trip (drives badges, gray cards, sorting, alerts).
+  // Re-runs whenever trips change or a review is submitted (reviewVersion).
+  useEffect(() => {
+    async function loadReviewProgress() {
+      if (!userId || !trips.length) {
+        setTripReviewMap({});
+        return;
+      }
+      const ids = [
+        ...new Set(
+          trips
+            .flatMap((t) => t.items.map((i) => i.listing_id))
+            .filter((id): id is string => !!id && id !== 'NOTE')
+        ),
+      ];
+      if (!ids.length) {
+        setTripReviewMap({});
+        return;
+      }
+      const { data } = await supabase
+        .from('reviews')
+        .select('listing_id')
+        .eq('user_id', userId)
+        .in('listing_id', ids);
+      const reviewedSet = new Set((data ?? []).map((r: any) => r.listing_id as string));
+      const map: Record<string, { total: number; reviewed: number }> = {};
+      for (const t of trips) {
+        const placeIds = [
+          ...new Set(t.items.map((i) => i.listing_id).filter((id): id is string => !!id && id !== 'NOTE')),
+        ];
+        map[t.trip_id] = {
+          total: placeIds.length,
+          reviewed: placeIds.filter((id) => reviewedSet.has(id)).length,
+        };
+      }
+      setTripReviewMap(map);
+    }
+    loadReviewProgress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, trips, reviewVersion]);
 
   function startHover(
     payload: { kind: 'listing'; id: string } | { kind: 'destination'; name: string },
@@ -1256,12 +1319,35 @@ useEffect(() => {
             <span className="text-sm text-slate-500">Dates, itineraries, and smart place suggestions</span>
           </div>
           {userId && (
-            <Link href="/my-trips" className="text-sm font-medium text-blue-600 hover:text-blue-700 whitespace-nowrap flex items-center gap-1">
+            <Link href="/my-trips" className="text-sm font-medium text-blue-600 hover:text-blue-700 whitespace-nowrap flex items-center gap-1.5">
               My trips & bookings
+              {tripsNeedingReviewCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold shadow-sm">
+                  {tripsNeedingReviewCount}
+                </span>
+              )}
               <Chevron className="w-4 h-4" />
             </Link>
           )}
         </div>
+
+        {/* Review alert — visible nudge to finish reviews in My trips */}
+        {userId && tripsNeedingReviewCount > 0 && (
+          <Link
+            href="/my-trips"
+            className="group flex items-center gap-3 mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition"
+          >
+            <span className="w-10 h-10 rounded-full bg-amber-400 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <Star className="w-5 h-5" />
+            </span>
+            <span className="flex-1 text-sm font-medium text-amber-800">
+              {tripsNeedingReviewCount} finished trip{tripsNeedingReviewCount === 1 ? '' : 's'} waiting for your review — rate the places you visited!
+            </span>
+            <span className="text-xs font-bold text-amber-600 group-hover:text-amber-700 whitespace-nowrap">
+              Go to My trips →
+            </span>
+          </Link>
+        )}
 
         {!userId ? (
           <div className="card-hover p-12 text-center">
@@ -1326,56 +1412,98 @@ useEffect(() => {
           <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-6">
             {/* Trip List Sidebar */}
             <div className="space-y-3">
-              {trips.map((t) => {
-                const sel = selectedTrip?.trip_id === t.trip_id;
-                const status = getTripStatus(t);
-                return (
-                  <div key={t.trip_id} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedTripId(t.trip_id)}
-                      className={`w-full text-left rounded-2xl border-2 p-5 transition-all ${
-                        sel
-                          ? 'border-blue-600 bg-gradient-to-br from-blue-50 to-blue-100/50 ring-2 ring-blue-600/20 shadow-lg'
-                          : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <p className="font-bold text-slate-900 truncate text-base">{t.trip_name ?? `Trip ${t.trip_id}`}</p>
-                        <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${
-                          status === 'finished' ? 'bg-slate-100 text-slate-700' :
-                          status === 'ongoing' ? 'bg-blue-100 text-blue-800' :
-                          'bg-emerald-100 text-emerald-800'
-                        }`}>
-                          {status === 'finished' ? 'Finished' : status === 'ongoing' ? 'Ongoing' : 'Upcoming'}
-                        </span>
-                      </div>
-                      <p className="text-sm text-slate-500 mb-1">{fmtDate(t.start_date)} → {fmtDate(t.end_date)}</p>
-                      <p className="text-sm text-slate-600 font-medium">{t.items.length} place{t.items.length === 1 ? '' : 's'}</p>
-                    </button>
-                    {sel && (
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          type="button"
-                          onClick={() => setShowEditTripModal(true)}
-                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition"
-                        >
-                          <EditIcon className="w-4 h-4" />
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowDeleteConfirm(t.trip_id)}
-                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 transition"
-                        >
-                          <TrashIcon className="w-4 h-4" />
-                          Delete
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {/* Category switcher — "Active" keeps finished trips out of the default view */}
+              <div className="flex flex-wrap gap-1.5">
+                {(['active', 'upcoming', 'ongoing', 'finished'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setTripFilter(f)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                      tripFilter === f
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    {f === 'active'
+                      ? `Active (${trips.filter((t) => getTripStatus(t) !== 'finished').length})`
+                      : `${f.charAt(0).toUpperCase() + f.slice(1)} (${trips.filter((t) => getTripStatus(t) === f).length})`}
+                  </button>
+                ))}
+              </div>
+
+              {filteredTrips.length === 0 ? (
+                <p className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-4 py-6 text-center">
+                  No {tripFilter === 'active' ? 'active ' : `${tripFilter} `}trips yet.
+                </p>
+              ) : (
+                filteredTrips.map((t) => {
+                  const sel = selectedTrip?.trip_id === t.trip_id;
+                  const status = getTripStatus(t);
+                  const needsReview = tripNeedsReview(t);
+                  const fullyReviewed = tripFullyReviewed(t);
+                  const info = tripReviewInfo(t);
+                  return (
+                    <div key={t.trip_id} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTripId(t.trip_id)}
+                        className={`w-full text-left rounded-2xl border-2 p-5 transition-all ${
+                          sel
+                            ? 'border-blue-600 bg-gradient-to-br from-blue-50 to-blue-100/50 ring-2 ring-blue-600/20 shadow-lg'
+                            : fullyReviewed
+                              ? 'border-slate-200 bg-slate-50/80 opacity-70 saturate-[.75] hover:opacity-90 hover:border-slate-300'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-md'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <p className={`font-bold truncate text-base ${fullyReviewed && !sel ? 'text-slate-500' : 'text-slate-900'}`}>
+                            {t.trip_name ?? `Trip ${t.trip_id}`}
+                          </p>
+                          <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${
+                            status === 'finished' ? 'bg-slate-100 text-slate-700' :
+                            status === 'ongoing' ? 'bg-blue-100 text-blue-800' :
+                            'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {status === 'finished' ? 'Finished' : status === 'ongoing' ? 'Ongoing' : 'Upcoming'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-500 mb-1">{fmtDate(t.start_date)} → {fmtDate(t.end_date)}</p>
+                        <p className="text-sm text-slate-600 font-medium">{t.items.length} place{t.items.length === 1 ? '' : 's'}</p>
+                        {needsReview && (
+                          <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-amber-600">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            {info.total - info.reviewed} place{info.total - info.reviewed === 1 ? '' : 's'} to review
+                          </p>
+                        )}
+                        {fullyReviewed && (
+                          <p className="mt-2 text-[11px] font-semibold text-slate-400">✓ Reviewed</p>
+                        )}
+                      </button>
+                      {sel && (
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            type="button"
+                            onClick={() => setShowEditTripModal(true)}
+                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition"
+                          >
+                            <EditIcon className="w-4 h-4" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowDeleteConfirm(t.trip_id)}
+                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 transition"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
               <button
                 type="button"
                 onClick={() => setShowTripModal(true)}
@@ -1409,8 +1537,8 @@ useEffect(() => {
                     </div>
                   </div>
 
-                  {/* Review prompt — only when the trip is finished */}
-                  {getTripStatus(selectedTrip) === 'finished' && (
+                  {/* Review prompt — finished trips with places still unreviewed */}
+                  {getTripStatus(selectedTrip) === 'finished' && pendingReviewCount > 0 && (
                     <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
@@ -1418,7 +1546,9 @@ useEffect(() => {
                         </div>
                         <div>
                           <p className="font-bold text-slate-900 text-sm">Your trip is complete! ✨</p>
-                          <p className="text-xs text-slate-600">How was your experience? Review the places you visited.</p>
+                          <p className="text-xs text-slate-600">
+                            {pendingReviewCount} place{pendingReviewCount === 1 ? '' : 's'} left to review — share how it went!
+                          </p>
                         </div>
                       </div>
                       <button
@@ -1431,7 +1561,7 @@ useEffect(() => {
                     </div>
                   )}
 
-                  {/* Slots progress bar (restored — was broken by the last paste) */}
+                  {/* Slots progress bar */}
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                       <div
@@ -1954,7 +2084,7 @@ useEffect(() => {
       </section>
 
       {/* Recommendations */}
-<section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 w-full">
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 w-full">
         <SectionHeader
           title={hasPersonal ? 'Top picks for you' : 'Community favorites'}
           helper={hasPersonal ? 'From your recommendation profile' : 'Most-recommended places across TravelMate'}
@@ -2045,7 +2175,12 @@ useEffect(() => {
           <h2 className="text-xl font-bold text-slate-900 mb-6">Quick actions</h2>
           <div className="space-y-3 flex-1 flex flex-col justify-between gap-3">
             <Link href="/my-trips" className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm">
-              My trips & bookings
+              <span className="flex items-center gap-2">
+                My trips & bookings
+                {tripsNeedingReviewCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold">{tripsNeedingReviewCount}</span>
+                )}
+              </span>
               <Chevron className="w-5 h-5 text-slate-400" />
             </Link>
             <Link href="/search" className="flex items-center justify-between px-5 py-4 rounded-xl border border-slate-200 text-base font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition shadow-sm">
@@ -2369,6 +2504,7 @@ useEffect(() => {
           trip={selectedTrip}
           userId={userId}
           onClose={() => setShowReviewTripModal(false)}
+          onReviewed={() => setReviewVersion((v) => v + 1)}
         />
       )}
 
@@ -2568,9 +2704,18 @@ function EditTripModal({ trip, onClose, onUpdated }: { trip: TripData; onClose: 
 // ─────────────────────────────────────────────────────────────
 // Review Trip Modal — stepped UI, one place at a time
 // ─────────────────────────────────────────────────────────────
-function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: string; onClose: () => void }) {
+function ReviewTripModal({
+  trip,
+  userId,
+  onClose,
+  onReviewed,
+}: {
+  trip: TripData;
+  userId: string;
+  onClose: () => void;
+  onReviewed?: (listingId: string) => void;
+}) {
   const supabase = createClient();
-  // Snapshot the places once — walking with a derived "first not-done" item avoids skip bugs
   const [places] = useState<TripItem[]>(() => trip.items.filter((i) => i.listing_type !== 'Note'));
   const [doneKeys, setDoneKeys] = useState<Set<string>>(new Set());
   const [rating, setRating] = useState(0);
@@ -2586,7 +2731,6 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
   const allDone = !current;
   const pct = places.length ? Math.round((doneCount / places.length) * 100) : 100;
 
-  // Pre-mark places the user already reviewed
   useEffect(() => {
     async function checkExisting() {
       const listingIds = [...new Set(places.map((p) => p.listing_id))];
@@ -2609,7 +2753,6 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
   }
 
   async function recalcAverage(listingId: string) {
-    // Recompute the listing average from all its reviews (no RPC dependency)
     const { data: all } = await supabase.from('reviews').select('rating').eq('listing_id', listingId);
     if (!all || !all.length) return;
     const avg = all.reduce((s, r: any) => s + Number(r.rating), 0) / all.length;
@@ -2632,7 +2775,8 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
           user_id: userId,
           rating,
           title: title.trim() || null,
-          review_text: text.trim() || null,
+          // reviews.review_text is NOT NULL — fall back to a readable placeholder
+          review_text: text.trim() || `(rated ${rating}/5 — no written review)`,
           visit_date: trip.end_date || new Date().toISOString().slice(0, 10),
           submission_date: new Date().toISOString().slice(0, 10),
           helpful_votes_count: 0,
@@ -2640,6 +2784,7 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
         });
         if (error) throw error;
         await recalcAverage(current.listing_id);
+        onReviewed?.(current.listing_id);
       }
       setDoneKeys((prev) => new Set(prev).add(current.key));
       resetForm();
@@ -2688,7 +2833,6 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
           </div>
         ) : current ? (
           <>
-            {/* Progress */}
             <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
               <span>Place {doneCount + 1} of {places.length}</span>
               <span>{pct}%</span>
@@ -2697,7 +2841,6 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
               <div className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
             </div>
 
-            {/* Place being reviewed */}
             <div className="flex items-center gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl mb-6">
               <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shrink-0 flex items-center justify-center text-white font-bold text-xl shadow-sm">
                 {current.listing_type?.charAt(0) ?? 'P'}
@@ -2713,7 +2856,6 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
 
             {err && <p className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm mb-4">{err}</p>}
 
-            {/* Stars */}
             <div className="mb-5">
               <label className="block text-sm font-semibold text-slate-700 mb-2">Your rating</label>
               <div className="flex items-center gap-1.5">
@@ -2734,7 +2876,6 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
               </div>
             </div>
 
-            {/* Title */}
             <div className="mb-4">
               <div className="flex items-baseline justify-between mb-1.5">
                 <label className="block text-sm font-semibold text-slate-700">Headline <span className="font-normal text-slate-400">(optional)</span></label>
@@ -2749,7 +2890,6 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
               />
             </div>
 
-            {/* Body */}
             <div className="mb-6">
               <div className="flex items-baseline justify-between mb-1.5">
                 <label className="block text-sm font-semibold text-slate-700">Your review <span className="font-normal text-slate-400">(optional)</span></label>
@@ -2765,7 +2905,6 @@ function ReviewTripModal({ trip, userId, onClose }: { trip: TripData; userId: st
               />
             </div>
 
-            {/* Actions */}
             <div className="flex gap-3">
               <button
                 type="button"
